@@ -1,0 +1,13 @@
+python -m PyInstaller --onefile `
+ --name TiHAN-Fly-Python-v2.1.0 `
+ --icon "App\tihan1.ico" `
+ --add-data "App\tihan1.ico;App" `
+ --add-data "App\qml;App\qml" `
+ --add-data "App\resources;App\resources" `
+ --add-data "App\images;App\images" `
+ --add-data "App\qml\translations_ta.qm;App" `
+ --add-data "export.geojson;." `
+ --add-data "env\Lib\site-packages\PyQt5\Qt5\plugins\platforms;platforms" `
+ --add-data "env\Lib\site-packages\PyQt5\Qt5\plugins\imageformats;imageformats" `
+ --add-data "env\Lib\site-packages\PyQt5\Qt5\plugins\geoservices;geoservices" `
+ main.py

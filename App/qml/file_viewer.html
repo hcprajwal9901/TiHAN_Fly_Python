@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📁 Offline File Manager</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background-color: #121212;
+    color: #f1f1f1;
+    margin: 0;
+    padding: 20px;
+    text-align: center;
+  }
+  h1 {
+    color: #00aaff;
+  }
+  .upload-box {
+    border: 2px dashed #444;
+    border-radius: 15px;
+    padding: 30px;
+    width: 400px;
+    margin: 20px auto;
+    background: #1e1e1e;
+  }
+  input[type="file"] {
+    margin-top: 10px;
+    color: white;
+  }
+  .file-list {
+    margin-top: 30px;
+    text-align: left;
+    width: 420px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .file-item {
+    background: #222;
+    border-radius: 10px;
+    padding: 10px 15px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .file-item a {
+    color: #00ccff;
+    text-decoration: none;
+    margin-right: 10px;
+  }
+  .delete-btn {
+    background: #ff3333;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    padding: 5px 10px;
+  }
+  .delete-btn:hover {
+    background: #cc0000;
+  }
+</style>
+</head>
+<body>
+
+<h1>📁 My Offline File Manager</h1>
+
+<div class="upload-box">
+  <p>Select files to store permanently in browser:</p>
+  <input type="file" id="fileInput" multiple>
+</div>
+
+<div class="file-list" id="fileList"></div>
+
+<script>
+  const fileInput = document.getElementById('fileInput');
+  const fileList = document.getElementById('fileList');
+
+  // Load files from localStorage on startup
+  let storedFiles = JSON.parse(localStorage.getItem('myFiles')) || {};
+
+  function displayFiles() {
+    fileList.innerHTML = '';
+    const fileNames = Object.keys(storedFiles);
+    if (fileNames.length === 0) {
+      fileList.innerHTML = '<p>No files stored.</p>';
+      return;
+    }
+
+    fileNames.forEach(name => {
+      const file = storedFiles[name];
+      const fileDiv = document.createElement('div');
+      fileDiv.classList.add('file-item');
+      fileDiv.innerHTML = `
+        <span>${name} (${(file.size / 1024).toFixed(1)} KB)</span>
+        <div>
+          <a href="${file.data}" download="${name}" target="_blank">Open</a>
+          <button class="delete-btn" onclick="deleteFile('${name}')">Delete</button>
+        </div>
+      `;
+      fileList.appendChild(fileDiv);
+    });
+  }
+
+  function deleteFile(name) {
+    delete storedFiles[name];
+    localStorage.setItem('myFiles', JSON.stringify(storedFiles));
+    displayFiles();
+  }
+
+  fileInput.addEventListener('change', async () => {
+    const files = fileInput.files;
+    for (const file of files) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        storedFiles[file.name] = {
+          data: e.target.result,
+          size: file.size
+        };
+        localStorage.setItem('myFiles', JSON.stringify(storedFiles));
+        displayFiles();
+      };
+      reader.readAsDataURL(file);
+    }
+    fileInput.value = ''; // reset file input
+  });
+
+  displayFiles();
+</script>
+
+</body>
+</html>

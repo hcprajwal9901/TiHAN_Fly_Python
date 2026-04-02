@@ -1,0 +1,26 @@
+{
+  "admin": {
+    "password": "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9",
+    "role": "administrator",
+    "full_name": "System Administrator",
+    "email": "admin@tihan.ac.in",
+    "created_at": "2025-07-04T13:01:09.861792",
+    "last_login": null
+  },
+  "operator": {
+    "password": "ec6e1c25258002eb1c67d15c7f45da7945fa4c58778fd7d88faa5e53e3b4698d",
+    "role": "operator",
+    "full_name": "Drone Operator",
+    "email": "operator@tihan.ac.in",
+    "created_at": "2025-07-04T13:01:09.861821",
+    "last_login": null
+  },
+  "guest": {
+    "password": "6b93ccba414ac1d0ae1e77f3fac560c748a6701ed6946735a49d463351518e16",
+    "role": "guest",
+    "full_name": "Guest User",
+    "email": "guest@tihan.ac.in",
+    "created_at": "2025-07-04T13:01:09.861826",
+    "last_login": null
+  }
+}

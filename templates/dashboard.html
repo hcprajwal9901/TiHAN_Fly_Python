@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Professional Auth System{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <nav class="navbar">
+        <div class="nav-content">
+            <h2>Dashboard</h2>
+            <a href="{{ url_for('logout') }}" class="btn" style="width: auto; padding: 8px 16px;">Logout</a>
+        </div>
+    </nav>
+    
+    <div class="welcome-section">
+        <h1>Welcome, {{ username }}!</h1>
+        <p>You have successfully logged into your account.</p>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'error' if category == 'error' else category }}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+</div>
+{% endblock %}
