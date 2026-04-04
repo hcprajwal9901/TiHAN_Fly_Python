@@ -11,7 +11,7 @@ Row {
     property var mainWindowRef: null
     property var parametersWindowInstance: null
     property var navigationControlsWindowInstance: null
-    property var pidTuningWindowInstance: null          // ✅ MERGED from Doc 1
+    property var pidTuningWindowInstance: null
     clip: false
 
     Button {
@@ -38,7 +38,7 @@ Row {
         hoverEnabled: false
         focusPolicy: Qt.NoFocus
         onClicked: {
-            // ─── NFZ Safety Check ─────────────────────────────────  // ✅ MERGED from Doc 2
+            // ─── NFZ Safety Check ──────────────────────────────────────────────
             var lat = (typeof droneModel !== "undefined" && droneModel && droneModel.telemetry)
                       ? (droneModel.telemetry.lat || 0) : 0
             var lon = (typeof droneModel !== "undefined" && droneModel && droneModel.telemetry)
@@ -47,11 +47,10 @@ Row {
             if (lat !== 0 && lon !== 0 &&
                 typeof nfzManager !== "undefined" && nfzManager &&
                 nfzManager.isDroneInNFZ(lat, lon)) {
-                // Drone is inside a No-Fly Zone – block takeoff
                 nfzTakeoffWarningDialog.open()
                 return
             }
-            // ──────────────────────────────────────────────────────
+            // ──────────────────────────────────────────────────────────────────
             takeoffButton.isClicked = true
             landButton.isClicked = false
             rtlButton.isClicked = false
@@ -217,14 +216,12 @@ Row {
                                     droneCommander: droneCommander,
                                     droneModel: droneModel
                                 })
-
                                 if (w) {
                                     mainWindowRef.navigationControlsWindowInstance = w
                                     w.show()
                                 } else {
                                     console.log("❌ Failed to create Waypoints window object.")
                                 }
-
                             } else {
                                 console.log("❌ Error loading NavigationControls.qml:", c.errorString())
                             }
@@ -242,7 +239,7 @@ Row {
                 }
             }
 
-            // ── PID Tuning ─────────────────────────────────────────  // ✅ MERGED from Doc 1
+            // ── PID Tuning ─────────────────────────────────────────
             MenuItem {
                 id: pidTuningMenuItem
                 property bool isClicked: false
@@ -270,10 +267,8 @@ Row {
                 onTriggered: {
                     console.log("🎛 PID Tuning menu item triggered")
 
-                    // CHECK 1: Drone Connected
                     if (typeof droneModel === 'undefined' || !droneModel.isConnected) {
                         console.log("❌ Drone not connected - cannot open PID Tuning")
-
                         var errorDialog = Qt.createQmlObject('
                             import QtQuick 2.15
                             import QtQuick.Controls 2.15
@@ -281,38 +276,30 @@ Row {
                                 title: "Connection Required"
                                 modal: true
                                 standardButtons: Dialog.Ok
-
                                 Label {
                                     text: "Please connect to the drone before opening PID Tuning."
                                     wrapMode: Text.WordWrap
                                 }
-
                                 onAccepted: destroy()
                             }
                         ', mainWindowRef)
-
                         errorDialog.open()
                         return
                     }
 
-                    // CHECK 2: DroneCommander Ready
                     var actualDroneCommander = droneModel.droneCommander
-
                     if (!actualDroneCommander) {
                         console.log("❌ DroneCommander not ready")
                         return
                     }
 
-                    // OPEN PID TUNING WINDOW
                     if (mainWindowRef && !mainWindowRef.pidTuningWindowInstance) {
                         var c = Qt.createComponent("PIDTuning.qml")
-
                         if (c.status === Component.Ready) {
                             var w = c.createObject(mainWindowRef, {
                                 "droneCommander": actualDroneCommander,
                                 "droneModel": droneModel
                             })
-
                             if (w) {
                                 w.visible = true
                                 mainWindowRef.pidTuningWindowInstance = w
@@ -355,14 +342,11 @@ Row {
                 onTriggered: {
                     console.log("📋 Parameters menu item triggered")
                     
-                    // CHECK 1: Is drone connected?
                     if (typeof droneModel === 'undefined' || !droneModel.isConnected) {
                         console.log("❌ Drone not connected - cannot open Parameters")
-                        
                         if (typeof messageLogger !== 'undefined') {
                             messageLogger.logMessage("❌ Connect to drone before opening Parameters", "error")
                         }
-                        
                         var errorDialog = Qt.createQmlObject('
                             import QtQuick 2.15
                             import QtQuick.Controls 2.15
@@ -372,30 +356,24 @@ Row {
                                 x: (parent.width - width) / 2
                                 y: (parent.height - height) / 2
                                 standardButtons: Dialog.Ok
-                                
                                 Label {
                                     text: "Please connect to the drone before opening Parameters window."
                                     wrapMode: Text.WordWrap
                                 }
-                                
                                 onAccepted: destroy()
                             }
                         ', mainWindowRef)
-                        
                         errorDialog.open()
                         return
                     }
                     
                     console.log("✅ Drone is connected")
                     
-                    // CHECK 2: Does droneCommander exist?
                     if (typeof droneCommander === 'undefined' || droneCommander === null) {
                         console.log("❌ droneCommander not available")
-                        
                         if (typeof messageLogger !== 'undefined') {
                             messageLogger.logMessage("❌ DroneCommander not available - try reconnecting", "error")
                         }
-                        
                         var errorDialog2 = Qt.createQmlObject('
                             import QtQuick 2.15
                             import QtQuick.Controls 2.15
@@ -405,28 +383,22 @@ Row {
                                 x: (parent.width - width) / 2
                                 y: (parent.height - height) / 2
                                 standardButtons: Dialog.Ok
-                                
                                 Label {
                                     text: "DroneCommander not ready. Please wait a moment after connecting."
                                     wrapMode: Text.WordWrap
                                 }
-                                
                                 onAccepted: destroy()
                             }
                         ', mainWindowRef)
-                        
                         errorDialog2.open()
                         return
                     }
                     
                     console.log("✅ droneCommander available:", droneCommander)
                     
-                    // CHECK 3: Get actual droneCommander from droneModel
                     var actualDroneCommander = droneModel.droneCommander
-                    
                     if (actualDroneCommander === null || typeof actualDroneCommander === 'undefined') {
                         console.log("❌ droneModel.droneCommander is null")
-                        
                         if (typeof messageLogger !== 'undefined') {
                             messageLogger.logMessage("❌ DroneCommander not initialized - reconnect drone", "error")
                         }
@@ -435,25 +407,19 @@ Row {
                     
                     console.log("✅ Got droneCommander from droneModel:", actualDroneCommander)
                     
-                    // NOW SAFE TO OPEN PARAMETERS WINDOW
                     if (mainWindowRef && !mainWindowRef.parametersWindowInstance) {
                         console.log("📋 Creating new Parameters window...")
-                        
                         var c = Qt.createComponent("Parameters.qml")
-                        
                         if (c.status === Component.Ready) {
                             console.log("✅ Parameters.qml component ready")
-                            
                             var w = c.createObject(mainWindowRef, {
                                 "droneCommander": actualDroneCommander,
                                 "droneModel": droneModel
                             })
-                            
                             if (w) {
                                 console.log("✅ Parameters window created successfully")
                                 w.show()
                                 mainWindowRef.parametersWindowInstance = w
-                                
                                 if (typeof messageLogger !== 'undefined') {
                                     messageLogger.logMessage("📋 Parameters window opened", "info")
                                 }
@@ -465,7 +431,6 @@ Row {
                         } else {
                             console.log("⏳ Parameters.qml loading...")
                         }
-                        
                     } else if (mainWindowRef && mainWindowRef.parametersWindowInstance) {
                         console.log("📋 Parameters window already exists - showing it")
                         mainWindowRef.parametersWindowInstance.visible = true
@@ -507,17 +472,14 @@ Row {
         onClicked: {
             if (!tinariWindowInstance) {
                 var component = Qt.createComponent("TiNariWindow.qml")
-                
                 if (component.status === Component.Ready) {
                     tinariWindowInstance = component.createObject(null, {
                         "portDetector": portDetector,
                         "messageLogger": messageLogger
                     })
-                    
                     if (tinariWindowInstance) {
                         isClicked = true
                         console.log("✅ Ti-NARI window opened successfully")
-                        
                         tinariWindowInstance.closing.connect(function() {
                             isClicked = false
                             tinariWindowInstance.destroy()
@@ -539,7 +501,7 @@ Row {
         }
         
         Connections {
-            target: tinariButton.tinariWindowInstance   // ✅ Explicit reference (Doc 1 style)
+            target: tinariButton.tinariWindowInstance
             function onVisibleChanged() {
                 if (tinariButton.tinariWindowInstance && !tinariButton.tinariWindowInstance.visible) {
                     tinariButton.isClicked = false
@@ -579,12 +541,12 @@ Row {
     }
 
     // ═══════════════════════════════════════════════════════════
-    // ALTITUDE & SPEED DIALOG
+    // ALTITUDE DIALOG  (climb speed hardcoded to 1.5 m/s)
     // ═══════════════════════════════════════════════════════════
     Dialog {
         id: altitudeSpeedDialog
         width: 450
-        height: 380
+        height: 360
         parent: ApplicationWindow.overlay
         anchors.centerIn: parent
         modal: true
@@ -676,7 +638,7 @@ Row {
 
                 Column {
                     anchors.centerIn: parent
-                    spacing: 25
+                    spacing: 16
                     width: parent.width - 60
 
                     Text {
@@ -732,62 +694,6 @@ Row {
                                 background: Rectangle {
                                     color: "transparent"
                                 }
-                            }
-                        }
-
-                        Text {
-                            text: languageManager ? languageManager.getText("Range: 1.0 - 500.0 m") : "Range: 1.0 - 500.0 m"
-                            font.family: "Consolas"
-                            font.pixelSize: 11
-                            color: "#95a5a6"
-                            anchors.horizontalCenter: parent.horizontalCenter
-                        }
-                    }
-
-                    // Speed Input
-                    Column {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        spacing: 8
-
-                        Text {
-                            text: languageManager ? languageManager.getText("Climb Speed (m/s)") : "Climb Speed (m/s)"
-                            font.family: "Consolas"
-                            font.pixelSize: 14
-                            font.weight: Font.Medium
-                            color: "#34495e"
-                            anchors.horizontalCenter: parent.horizontalCenter
-                        }
-
-                        Rectangle {
-                            width: 200
-                            height: 45
-                            color: "#ffffff"
-                            border.color: speedInput.activeFocus ? "#4A90E2" : "#e1e8ed"
-                            border.width: 2
-                            radius: 8
-                            anchors.horizontalCenter: parent.horizontalCenter
-
-                            TextField {
-                                id: speedInput
-                                anchors.fill: parent
-                                anchors.margins: 2
-                                text: "2.5"
-                                placeholderText: "Enter speed..."
-                                font.family: "Consolas"
-                                font.pixelSize: 16
-                                font.weight: Font.Medium
-                                horizontalAlignment: TextInput.AlignHCenter
-                                color: "#2c3e50"
-
-                                validator: DoubleValidator {
-                                    bottom: 0.5
-                                    top: 10.0
-                                    decimals: 1
-                                }
-
-                                background: Rectangle {
-                                    color: "transparent"
-                                }
 
                                 Keys.onReturnPressed: {
                                     if (startTakeoffButton.enabled) {
@@ -798,7 +704,7 @@ Row {
                         }
 
                         Text {
-                            text: languageManager ? languageManager.getText("Range: 0.5 - 10.0 m/s") : "Range: 0.5 - 10.0 m/s"
+                            text: languageManager ? languageManager.getText("Range: 1.0 - 500.0 m") : "Range: 1.0 - 500.0 m"
                             font.family: "Consolas"
                             font.pixelSize: 11
                             color: "#95a5a6"
@@ -817,7 +723,7 @@ Row {
 
                         Text {
                             anchors.centerIn: parent
-                            text: "🤖 Auto: ARM → GUIDED → TAKEOFF"
+                            text: "🤖 Auto: ARM → GUIDED → TAKEOFF  |  Climb: 1.5 m/s"
                             font.family: "Consolas"
                             font.pixelSize: 12
                             color: "#2e7d32"
@@ -867,10 +773,7 @@ Row {
                         }
 
                         hoverEnabled: true
-
-                        onClicked: {
-                            altitudeSpeedDialog.close()
-                        }
+                        onClicked: altitudeSpeedDialog.close()
                     }
 
                     Button {
@@ -878,8 +781,7 @@ Row {
                         text: languageManager ? languageManager.getText("Start Takeoff") : "Start Takeoff"
                         width: 140
                         height: 40
-                        enabled: altitudeInput.text !== "" && altitudeInput.acceptableInput &&
-                                speedInput.text !== "" && speedInput.acceptableInput
+                        enabled: altitudeInput.text !== "" && altitudeInput.acceptableInput
 
                         background: Rectangle {
                             color: {
@@ -904,9 +806,9 @@ Row {
 
                         onClicked: {
                             var altitude = parseFloat(altitudeInput.text)
-                            var speed = parseFloat(speedInput.text)
+                            var speed = 1.5   // hardcoded default climb speed
 
-                            // ─── NFZ Safety Check (second gate) ───────────────  // ✅ MERGED from Doc 2
+                            // ─── NFZ Safety Check (second gate) ───────────────
                             var lat2 = (typeof droneModel !== "undefined" && droneModel && droneModel.telemetry)
                                        ? (droneModel.telemetry.lat || 0) : 0
                             var lon2 = (typeof droneModel !== "undefined" && droneModel && droneModel.telemetry)
@@ -923,14 +825,11 @@ Row {
 
                             console.log("🚁 Starting automated takeoff:")
                             console.log("  - Altitude:", altitude, "m")
-                            console.log("  - Speed:", speed, "m/s")
-                            console.log("  - altitude type:", typeof altitude)
-                            console.log("  - speed type:", typeof speed)
+                            console.log("  - Speed:", speed, "m/s (default)")
                             console.log("  - altitude isNaN:", isNaN(altitude))
-                            console.log("  - speed isNaN:", isNaN(speed))
                             console.log("  - droneCommander exists:", droneCommander !== undefined && droneCommander !== null)
-                            
-                            if (!isNaN(altitude) && !isNaN(speed) && altitude > 0 && speed > 0) {
+
+                            if (!isNaN(altitude) && altitude > 0) {
                                 if (droneCommander) {
                                     try {
                                         console.log("📞 Calling droneCommander.takeoff(" + altitude + ", " + speed + ")")
@@ -943,12 +842,9 @@ Row {
                                 } else {
                                     console.log("❌ DroneCommander not set for takeoff.")
                                 }
-                                
                                 altitudeSpeedDialog.close()
                             } else {
-                                console.log("❌ Invalid input values:")
-                                console.log("  - altitude:", altitude, "valid:", !isNaN(altitude) && altitude > 0)
-                                console.log("  - speed:", speed, "valid:", !isNaN(speed) && speed > 0)
+                                console.log("❌ Invalid altitude value:", altitude)
                             }
                         }
                     }
@@ -956,7 +852,6 @@ Row {
             }
         }
 
-        // Reset inputs when dialog opens
         onOpened: {
             altitudeInput.forceActiveFocus()
             altitudeInput.selectAll()
@@ -964,7 +859,7 @@ Row {
     }
 
     // ═══════════════════════════════════════════════════════════
-    // NFZ TAKEOFF WARNING DIALOG                                  // ✅ MERGED from Doc 2
+    // NFZ TAKEOFF WARNING DIALOG
     // ═══════════════════════════════════════════════════════════
     Dialog {
         id: nfzTakeoffWarningDialog
@@ -986,7 +881,6 @@ Row {
             border.width: 2
         }
 
-        // Header strip
         Rectangle {
             id: nfzWarningHeader
             anchors.top: parent.top
@@ -1023,7 +917,6 @@ Row {
             }
         }
 
-        // Body
         Column {
             anchors.top: nfzWarningHeader.bottom
             anchors.left: parent.left

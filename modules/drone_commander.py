@@ -379,42 +379,49 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
     def uploadMission(self, waypoints):
         """Parse waypoints and instantly start the asynchronous upload transaction.
         Time Complexity: O(1) blocking time. Send happens efficiently via _process_message."""
-
+ 
         print("=" * 60)
         print("[DroneCommander] 📤 UPLOADING MISSION (ASYNC)")
         print("=" * 60)
-
+ 
         if not waypoints:
             print("[DroneCommander] ❌ No waypoints provided")
             self.commandFeedback.emit("❌ No waypoints to upload")
             return False
-
+ 
         if not self._is_drone_ready():
             return False
-
+ 
         print(f"[DroneCommander] 📦 Received {len(waypoints)} waypoints")
-
+ 
         # ── Parse QVariantList → plain dicts (runs on calling thread, fast) ──
         mission_waypoints = []
         command_map = {
-            'TAKEOFF': 22, 'WAYPOINT': 16, 'LAND': 21, 'RETURN': 20,
+            'TAKEOFF':         22,
+            'WAYPOINT':        16,
+            'LAND':            21,
+            'RETURN':          20,
+            'DO_CHANGE_SPEED': 178,   # MAVLink MAV_CMD_DO_CHANGE_SPEED
         }
-
+ 
         for i, wp in enumerate(waypoints):
             lat = lng = alt = 0.0
             command_str = "WAYPOINT"
+            speed_ms = 1.5  # default navigation speed
             try:
                 if isinstance(wp, dict):
                     lat         = float(wp.get('latitude', 0))
                     lng         = float(wp.get('longitude', 0))
                     alt         = float(wp.get('altitude', 0))
                     command_str = wp.get('command', 'WAYPOINT')
+                    speed_ms    = float(wp.get('speed', 1.5))
                 elif hasattr(wp, '__getitem__'):
                     try:
                         lat         = float(wp['latitude'])
                         lng         = float(wp['longitude'])
                         alt         = float(wp['altitude'])
                         command_str = wp.get('command', 'WAYPOINT')
+                        speed_ms    = float(wp.get('speed', 1.5))
                     except (KeyError, TypeError):
                         lat         = float(wp.get('lat', 0))
                         lng         = float(wp.get('lng', 0))
@@ -424,44 +431,75 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                     lng         = float(wp.longitude)
                     alt         = float(wp.altitude)
                     command_str = getattr(wp, 'command', 'WAYPOINT')
+                    speed_ms    = float(getattr(wp, 'speed', 1.5))
                 else:
                     print(f"[DroneCommander] ❌ Unknown WP format: {wp}")
                     continue
             except Exception as e:
                 print(f"[DroneCommander] ❌ WP{i+1} parse error: {e}")
                 continue
-
+ 
+            cmd_upper   = command_str.upper()
+            mavlink_cmd = command_map.get(cmd_upper, 16)
+ 
+            # ── DO_CHANGE_SPEED: speed goes in param2, not x/y/z ────────────
+            if cmd_upper == 'DO_CHANGE_SPEED':
+                print(f"[DroneCommander] ⚡ WP{i}: DO_CHANGE_SPEED → {speed_ms} m/s")
+                mission_waypoints.append({
+                    'seq':          i,
+                    'frame':        0,          # MAV_FRAME_GLOBAL (ignored for this cmd)
+                    'command':      mavlink_cmd, # 178
+                    'current':      0,
+                    'autocontinue': 1,
+                    'param1': 1,                # 1 = groundspeed
+                    'param2': speed_ms,         # speed in m/s  e.g. 1.5
+                    'param3': -1,               # throttle: -1 = no change
+                    'param4': 0,
+                    'x': 0, 'y': 0, 'z': 0,
+                    'mission_type': 0,
+                    'str_cmd': cmd_upper
+                })
+                continue  # skip the lat/lon 0,0 guard below
+            # ─────────────────────────────────────────────────────────────────
+ 
             if lat == 0.0 and lng == 0.0:
                 print(f"[DroneCommander] ⚠️ WP{i+1} has 0,0 coords – skipped")
                 continue
-
+ 
             mission_waypoints.append({
-                'seq': i,
-                'frame': 3,
-                'command': command_map.get(command_str.upper(), 16),
-                'current': 1 if i == 0 else 0,
+                'seq':          i,
+                'frame':        3,
+                'command':      mavlink_cmd,
+                'current':      1 if i == 0 else 0,
                 'autocontinue': 1,
                 'param1': 0, 'param2': 0, 'param3': 0, 'param4': 0,
                 'x': lat, 'y': lng, 'z': alt,
                 'mission_type': 0,
-                'str_cmd': command_str.upper() # Saved for QML broadcast
+                'str_cmd': cmd_upper
             })
-
+ 
         if not mission_waypoints:
             print("[DroneCommander] ❌ No valid waypoints extracted!")
             self.commandFeedback.emit("❌ No valid waypoints to upload")
             return False
-
-        print(f"[DroneCommander] ✅ Parsed {len(mission_waypoints)} waypoints")
+ 
+        # Re-sequence all items so seq numbers are 0-based and contiguous
+        for idx, item in enumerate(mission_waypoints):
+            item['seq'] = idx
+            # First non-speed item should be 'current'
+            if idx == 0:
+                item['current'] = 0   # DO_CHANGE_SPEED is never 'current'
+            elif idx == 1 and mission_waypoints[0]['command'] == 178:
+                item['current'] = 1   # first real nav waypoint is current
+ 
+        print(f"[DroneCommander] ✅ Parsed {len(mission_waypoints)} waypoints (incl. speed cmd)")
         self.commandFeedback.emit(f"📡 Uploading {len(mission_waypoints)} waypoints…")
-
+ 
         # Set up the async queue and start the transaction
         self._upload_mission_queue = mission_waypoints
         self._upload_mission_active = True
-
+ 
         try:
-            # Send COUNT to initiate the transaction with the autopilot.
-            # The autopilot will reply with MISSION_REQUEST(0) which is handled by _process_message
             print("[DroneCommander] 🗑️ Sending MISSION_COUNT to initiate upload...")
             self._drone.mav.mission_count_send(
                 self._drone.target_system,
@@ -472,10 +510,122 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
             self.commandFeedback.emit("❌ Failed to initiate mission upload")
             self._upload_mission_active = False
             return False
-
+ 
         return True   # "started" – result handled via async events
-
-
+ 
+ 
+    def _execute_takeoff_sequence(self, target_altitude, target_speed):
+        """Execute full takeoff sequence with arming and mode changes"""
+        try:
+            # Configure safety parameters
+            self.commandFeedback.emit("⚙️ Configuring parameters...")
+            params = {
+                b'FS_THR_ENABLE':    0,   # Disable RC throttle failsafe
+                b'FS_GCS_ENABLE':    0,   # Disable GCS failsafe
+                b'ARMING_CHECK':     0,   # Skip pre-arm checks (SITL)
+                # ── Battery failsafe ─────────────────────────────────────────
+                b'BATT_FS_LOW_ACT': 0,   # Battery low  → no action
+                b'BATT_FS_CRT_ACT': 0,   # Battery crit → no action
+                # ── SITL battery capacity ───────────────────────────────────
+                b'SIM_BATT_CAP_AH': 100000,  # 100 Ah — never runs out
+                # ── Waypoint navigation speed ────────────────────────────────
+                # WPNAV_SPEED is in cm/s in ArduCopter.
+                # 150 cm/s = 1.5 m/s — matches the QML DO_CHANGE_SPEED default.
+                b'WPNAV_SPEED':     150,  # 1.5 m/s
+            }
+ 
+            # Only disable geofence if the user has NOT explicitly enabled it
+            if not self._geofence_enabled:
+                params[b'FENCE_ENABLE'] = 0
+                print("[DroneCommander] 🛡️  GeoFence: user has NOT enabled fence — disabling for takeoff")
+            else:
+                print("[DroneCommander] 🛡️  GeoFence: user-enabled fence will remain ACTIVE during flight")
+                self.commandFeedback.emit("🛡️ GeoFence is ACTIVE — enforcing altitude & radius limits")
+ 
+            for p, v in params.items():
+                self._drone.mav.param_set_send(
+                    self._drone.target_system,
+                    self._drone.target_component,
+                    p, v, mavutil.mavlink.MAV_PARAM_TYPE_INT32)
+                time.sleep(0.3)
+            time.sleep(6)
+ 
+            # Switch to GUIDED mode
+            self.commandFeedback.emit("🎯 Switching to GUIDED mode...")
+            mode_id = self._drone.mode_mapping().get("GUIDED")
+            self._drone.mav.set_mode_send(
+                self._drone.target_system,
+                mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+                mode_id)
+            time.sleep(2)
+ 
+            if self._drone.flightmode != "GUIDED":
+                self.commandFeedback.emit("❌ Failed to enter GUIDED mode")
+                return False
+ 
+            # Arm motors
+            self.commandFeedback.emit("🔐 Arming drone...")
+            for _ in range(5):
+                self._drone.mav.command_long_send(
+                    self._drone.target_system,
+                    self._drone.target_component,
+                    mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+                    0, 1, 0, 0, 0, 0, 0, 0)
+                time.sleep(0.4)
+            time.sleep(2)
+ 
+            if not self._drone.motors_armed():
+                self.commandFeedback.emit("❌ Failed to arm")
+                return False
+ 
+            self.commandFeedback.emit("✅ Drone armed")
+            self.armDisarmCompleted.emit(True, "Drone Armed Successfully!")
+ 
+            # Execute takeoff
+            self.commandFeedback.emit(f"🚁 Taking off to {target_altitude}m...")
+            self._drone.mav.command_long_send(
+                self._drone.target_system,
+                self._drone.target_component,
+                mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+                0, 0, 0, 0, 0, 0, 0, target_altitude)
+ 
+            # Monitor takeoff progress using RELATIVE altitude (above home)
+            start_rel_alt = None
+            start_time = time.time()
+ 
+            while time.time() - start_time < 30:
+                try:
+                    tel = self.drone_model.telemetry
+                    rel_alt = tel.get("rel_alt", 0.0) if isinstance(tel, dict) else getattr(tel, "rel_alt", 0.0)
+                except Exception:
+                    rel_alt = 0.0
+ 
+                if start_rel_alt is None:
+                    start_rel_alt = rel_alt
+ 
+                gain = rel_alt - start_rel_alt
+ 
+                if gain > 0:
+                    pct = min(100, int((gain / target_altitude) * 100))
+                    self.commandFeedback.emit(f"🚁 Climbing: {rel_alt:.1f}m above home ({pct}%)")
+ 
+                if not self._drone.motors_armed():
+                    self.commandFeedback.emit("❌ Disarmed during takeoff")
+                    return False
+ 
+                if gain >= target_altitude * 0.8:   # reached 80% of target
+                    self.commandFeedback.emit("✅ Takeoff successful!")
+                    return True
+ 
+                time.sleep(0.5)
+ 
+            self.commandFeedback.emit("❌ Takeoff timeout")
+            return False
+ 
+        except Exception as e:
+            self.commandFeedback.emit(f"❌ Takeoff error: {e}")
+            return False
+ 
     def _send_item(self, wp):
         """Helper: send a single MISSION_ITEM_INT for the given waypoint dict."""
         self._drone.mav.mission_item_int_send(

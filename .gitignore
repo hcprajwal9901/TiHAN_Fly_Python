@@ -4,4 +4,5 @@ dist/
 *.pkg
 env/
 __pycache__/
-.venv/
+venv/
+myenv/

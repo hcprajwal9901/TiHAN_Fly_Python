@@ -732,7 +732,7 @@ Rectangle {
        
         property int markerIndex: -1
         property real altitude: 10
-        property real speed: 5
+        property real speed: 1.5
        
         background: Rectangle {
             color: theme.cardBackground
@@ -1135,7 +1135,7 @@ Popup {
                 width: parent.width
                 height: 40
                 text: waypointsMap.surveySpeed
-                validator: DoubleValidator { bottom: 1; top: 20 }
+                validator: DoubleValidator { bottom: 0.5; top: 20 }
                 font.pixelSize: 14
                 background: Rectangle {
                     color: "#34495e"
@@ -1220,7 +1220,7 @@ Popup {
         overlapInput.text = waypointsMap.surveyOverlap || "70";
         sidelapInput.text = waypointsMap.surveySidelap || "60";
         gridAngleInput.text = waypointsMap.surveyAngle || "0";
-        speedInput.text = waypointsMap.surveySpeed || "10";
+        speedInput.text = waypointsMap.surveySpeed || "1.5";
        
         // Calculate initial line spacing from current sidelap
         var altitude = parseFloat(altitudeInput.text);
@@ -2232,7 +2232,7 @@ Popup {
         overlapInput.text = waypointsMap.surveyOverlap || "70"
         sidelapInput.text = waypointsMap.surveySidelap || "60"
         gridAngleInput.text = waypointsMap.surveyAngle || "0"
-        speedInput.text = waypointsMap.surveySpeed || "10"
+        speedInput.text = waypointsMap.surveySpeed || "1.5"
     }
 }
 
@@ -3839,7 +3839,7 @@ function getWeather(lat, lon) {
             var data = markers[index];
             markerPopup.markerIndex = index;
             markerPopup.altitude = data.altitude || 10;
-            markerPopup.speed = data.speed || 5;
+            markerPopup.speed = data.speed || 1.5;
             markerPopup.open();
         } else {
             console.log("Invalid marker index:", index);
@@ -3934,7 +3934,25 @@ function sendMarkers() {
     var waypoints = [];
     var hasRTLCommand = false;
     var rtlWaypointIndex = -1;
-    
+
+    // ── Inject DO_CHANGE_SPEED as item 0 so ArduPilot honours nav speed ──
+    // MAVLink cmd 178: param1=speed_type(0=airspeed,1=groundspeed),
+    //                  param2=speed_m/s, param3=throttle(-1=ignore)
+    // Default waypoint navigation speed = 1.5 m/s
+    var navSpeed = (waypointsMap.surveySpeed && waypointsMap.surveySpeed > 0)
+                   ? waypointsMap.surveySpeed : 1.5;
+    waypoints.push({
+        "id": 0,
+        "command": "DO_CHANGE_SPEED",
+        "latitude": 0,
+        "longitude": 0,
+        "altitude": 0,
+        "speed": navSpeed,      // Python reads this to fill param2
+        "hold_time": 0
+    });
+    console.log("⚡ Injected DO_CHANGE_SPEED:", navSpeed, "m/s at WP0");
+    // ─────────────────────────────────────────────────────────────────────
+
     // ✅ STEP 1: Process all markers
     for (var i = 0; i < markers.length; i++) {
         var marker = markers[i];
@@ -4695,7 +4713,7 @@ function updateMissionStatistics() {
    
     // Calculate estimated time BEFORE mission starts
     if (!waypointsMap.missionActive) {
-        var avgSpeed = waypointsMap.surveySpeed || 10; // Default 10 m/s
+        var avgSpeed = waypointsMap.surveySpeed || 1.5; // Default 1.5 m/s
         if (avgSpeed > 0) {
             var estimatedSeconds = totalDistance / avgSpeed;
             var minutes = Math.floor(estimatedSeconds / 60);
@@ -4869,10 +4887,10 @@ function updateRemainingTime() {
     }
    
     var remainingDistance = 0;
-    var avgSpeed = waypointsMap.surveySpeed || 10;
+    var avgSpeed = waypointsMap.surveySpeed || 1.5;
    
     if (avgSpeed <= 0) {
-        avgSpeed = 10; // Fallback
+        avgSpeed = 1.5; // Fallback
     }
    
     // Distance from drone to current target waypoint
