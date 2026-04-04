@@ -542,10 +542,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                 b'BATT_FS_CRT_ACT': 0,   # Battery crit → no action
                 # ── SITL battery capacity ───────────────────────────────────
                 b'SIM_BATT_CAP_AH': 100000,  # 100 Ah — never runs out
-                # ── Waypoint navigation speed ────────────────────────────────
-                # WPNAV_SPEED is in cm/s in ArduCopter.
-                # 150 cm/s = 1.5 m/s — matches the QML DO_CHANGE_SPEED default.
-                b'WPNAV_SPEED':     150,  # 1.5 m/s
             }
  
             # Only disable geofence if the user has NOT explicitly enabled it

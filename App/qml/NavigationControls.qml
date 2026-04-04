@@ -3946,24 +3946,6 @@ function sendMarkers() {
     var hasRTLCommand = false;
     var rtlWaypointIndex = -1;
 
-    // ── Inject DO_CHANGE_SPEED as item 0 so ArduPilot honours nav speed ──
-    // MAVLink cmd 178: param1=speed_type(0=airspeed,1=groundspeed),
-    //                  param2=speed_m/s, param3=throttle(-1=ignore)
-    // Default waypoint navigation speed = 1.5 m/s
-    var navSpeed = (waypointsMap.surveySpeed && waypointsMap.surveySpeed > 0)
-                   ? waypointsMap.surveySpeed : 1.5;
-    waypoints.push({
-        "id": 0,
-        "command": "DO_CHANGE_SPEED",
-        "latitude": 0,
-        "longitude": 0,
-        "altitude": 0,
-        "speed": navSpeed,      // Python reads this to fill param2
-        "hold_time": 0
-    });
-    console.log("⚡ Injected DO_CHANGE_SPEED:", navSpeed, "m/s at WP0");
-    // ─────────────────────────────────────────────────────────────────────
-
     // ✅ STEP 1: Process all markers
     for (var i = 0; i < markers.length; i++) {
         var marker = markers[i];
