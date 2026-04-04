@@ -133,6 +133,7 @@ try:
     from modules.port_manager import PortManager
     from modules.drone_module import DroneModel
     from modules.drone_commander import DroneCommander
+    from modules.mission_manager import MissionManager              # ✅ Mission Protocol Manager
     from modules.nfz_manager import NFZManager                      # ✅ NFZ Manager
     from modules.camera_model import CameraModel                    # ✅ Camera Model
     from modules.rtsp_frame_provider import RtspFrameProvider       # ✅ MERGED from Doc 6: OpenCV RTSP frame provider
@@ -801,6 +802,10 @@ def load_main_window(qml_base_path, app_mgr):
         drone_commander = DroneCommander(drone_model)
         app_mgr.register_model('drone_commander', drone_commander)
 
+        # ✅ Mission Manager — spec-compliant MAVLink mission protocol
+        mission_manager = MissionManager()
+        app_mgr.register_model('mission_manager', mission_manager)
+
         # ✅ Camera Model - handles stream, recording, zoom, camera switching
         print("  📷 Camera Model...")
         camera_model = CameraModel(drone_commander)
@@ -1141,6 +1146,12 @@ def load_main_window(qml_base_path, app_mgr):
                 thread.register_msg_callback(_route_mavlink_to_camera_gimbal)
                 print("[Main] ✅ Camera/Gimbal managers wired via register_msg_callback")
 
+            # Mission Manager — route mission protocol messages
+            if mission_manager is not None:
+                mission_manager.setConnection(drone_model.drone_connection)
+                thread.register_msg_callback(mission_manager.handle_mavlink_message)
+                print("[Main] ✅ MissionManager wired via register_msg_callback")
+
         drone_model.droneConnectedChanged.connect(
             lambda: _wire_mavlink_callbacks_on_connect() if drone_model.isConnected else None
         )
@@ -1168,6 +1179,7 @@ def load_main_window(qml_base_path, app_mgr):
         # Core models
         ctx.setContextProperty("droneModel",      drone_model)
         ctx.setContextProperty("droneCommander",  drone_commander)
+        ctx.setContextProperty("missionManager",  mission_manager)
         ctx.setContextProperty("cameraModel",     camera_model)      # ✅ Camera Model
         ctx.setContextProperty("nfzManager",      nfz_manager)       # ✅ NFZ Manager
         ctx.setContextProperty("portManager",     port_manager)
