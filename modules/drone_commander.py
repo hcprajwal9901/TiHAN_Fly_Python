@@ -35,6 +35,15 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
         # Track whether the user has explicitly enabled a geo-fence.
         # Takeoff will respect this and NOT disable the fence when True.
         self._geofence_enabled = False
+        # FENCE_TYPE bitmask last written: 1=Alt, 2=Circle, 3=Both
+        self._geofence_type = 3
+        # GCS-side software fence config (mirrors what was written to FC)
+        self._geofence_radius   = 150.0
+        self._geofence_alt_max  = 100.0
+        self._geofence_action   = 1       # 1=RTL, 2=Land
+        # Software monitor thread control
+        self._geofence_monitor_active = False
+        self._geofence_monitor_thread = None
 
         self._mission_waypoints = []  # Store uploaded mission
         self._mission_current = -1    # Track current waypoint
@@ -170,7 +179,12 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                 print("[DroneCommander] 🛡️  GeoFence: user has NOT enabled fence — disabling for takeoff")
             else:
                 print("[DroneCommander] 🛡️  GeoFence: user-enabled fence will remain ACTIVE during flight")
-                self.commandFeedback.emit("🛡️ GeoFence is ACTIVE — enforcing altitude & radius limits")
+                fence_desc = {
+                    1: "altitude limit",
+                    2: "radius limit",
+                    3: "altitude & radius limits",
+                }.get(self._geofence_type, "altitude & radius limits")
+                self.commandFeedback.emit(f"🛡️ GeoFence is ACTIVE — enforcing {fence_desc}")
 
             for p, v in params.items():
                 self._drone.mav.param_set_send(
@@ -540,7 +554,12 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                 print("[DroneCommander] 🛡️  GeoFence: user has NOT enabled fence — disabling for takeoff")
             else:
                 print("[DroneCommander] 🛡️  GeoFence: user-enabled fence will remain ACTIVE during flight")
-                self.commandFeedback.emit("🛡️ GeoFence is ACTIVE — enforcing altitude & radius limits")
+                fence_desc = {
+                    1: "altitude limit",
+                    2: "radius limit",
+                    3: "altitude & radius limits",
+                }.get(self._geofence_type, "altitude & radius limits")
+                self.commandFeedback.emit(f"🛡️ GeoFence is ACTIVE — enforcing {fence_desc}")
  
             for p, v in params.items():
                 self._drone.mav.param_set_send(
@@ -919,7 +938,17 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
             return
 
         # Persist intent immediately so takeoff knows before the thread finishes
-        self._geofence_enabled = bool(enabled)
+        self._geofence_enabled  = bool(enabled)
+        self._geofence_type     = int(fence_type)   # 1=Alt, 2=Circle, 3=Both
+        self._geofence_radius   = float(max_radius)
+        self._geofence_alt_max  = float(max_altitude)
+        self._geofence_action   = int(fence_action)  # 1=RTL, 2=Land
+
+        # Start / stop the GCS-side software enforcement monitor
+        if enabled:
+            self._start_geofence_monitor()
+        else:
+            self._stop_geofence_monitor()
 
         # Run the actual MAVLink writes in a daemon thread so the UI stays
         # responsive during the confirmation round-trips.
@@ -983,6 +1012,144 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
             print(f"[DroneCommander] {error_msg}")
             import traceback
             traceback.print_exc()
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # GCS-SIDE SOFTWARE GEOFENCE MONITOR
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _start_geofence_monitor(self):
+        """Start the background GCS-side geofence enforcement thread."""
+        # Don't spawn a second thread if one is already running
+        if self._geofence_monitor_thread and self._geofence_monitor_thread.is_alive():
+            print("[DroneCommander] 🛡️  GeoFence monitor already running")
+            return
+        self._geofence_monitor_active = True
+        self._geofence_monitor_thread = threading.Thread(
+            target=self._geofence_monitor_loop,
+            daemon=True,
+            name="GeoFence-monitor"
+        )
+        self._geofence_monitor_thread.start()
+        print("[DroneCommander] 🛡️  GCS GeoFence monitor STARTED")
+
+    def _stop_geofence_monitor(self):
+        """Signal the monitor loop to stop."""
+        self._geofence_monitor_active = False
+        print("[DroneCommander] 🛡️  GCS GeoFence monitor STOPPED")
+
+    @staticmethod
+    def _haversine_m(lat1, lon1, lat2, lon2):
+        """Return great-circle distance in metres between two GPS points."""
+        import math
+        R = 6_371_000
+        phi1, phi2 = math.radians(lat1), math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlam = math.radians(lon2 - lon1)
+        a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+        return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    def _geofence_monitor_loop(self):
+        """
+        Background thread: independently enforces the geo-fence from GCS side.
+        This is the backup layer when ArduPilot's onboard fence does not trigger
+        reliably (e.g. SITL, bad home-point, firmware quirks).
+        """
+        import math
+        print("[DroneCommander] 🛡️  GeoFence monitor loop running")
+
+        home_lat = home_lon = None
+        alt_breach_active  = False
+        circ_breach_active = False
+        home_set           = False
+
+        while self._geofence_monitor_active:
+            time.sleep(1.0)
+
+            # Stop silently if fence was disabled
+            if not self._geofence_enabled:
+                continue
+
+            try:
+                if not self._drone or not self.drone_model.isConnected:
+                    continue
+
+                tel = self.drone_model.telemetry
+                if tel is None:
+                    continue
+
+                if isinstance(tel, dict):
+                    lat     = float(tel.get("lat",     0.0))
+                    lon     = float(tel.get("lon",     0.0))
+                    rel_alt = float(tel.get("rel_alt", 0.0))
+                else:
+                    lat     = float(getattr(tel, "lat",     0.0))
+                    lon     = float(getattr(tel, "lon",     0.0))
+                    rel_alt = float(getattr(tel, "rel_alt", 0.0))
+
+                if lat == 0.0 or lon == 0.0:
+                    continue
+
+                # ── Capture home on first valid GPS fix ──────────────────────
+                if not home_set:
+                    home_lat, home_lon = lat, lon
+                    home_set = True
+                    print(f"[DroneCommander] 🏠 GeoFence home locked: "
+                          f"{home_lat:.6f}, {home_lon:.6f}")
+                    self.commandFeedback.emit(
+                        f"🏠 GeoFence home: {home_lat:.5f}, {home_lon:.5f}")
+                    continue
+
+                # ── Circle / radius check ────────────────────────────────────
+                if self._geofence_type in (2, 3):   # Circle or Both
+                    dist = self._haversine_m(home_lat, home_lon, lat, lon)
+
+                    if dist > self._geofence_radius and not circ_breach_active:
+                        circ_breach_active = True
+                        msg = (f"🚨 GCS GeoFence BREACH — "
+                               f"{dist:.0f}m from home (limit: {self._geofence_radius:.0f}m)")
+                        print(f"[DroneCommander] {msg}")
+                        self.commandFeedback.emit(msg)
+                        self._trigger_fence_action()
+
+                    elif dist <= self._geofence_radius:
+                        circ_breach_active = False   # Back inside — reset
+
+                # ── Altitude check ───────────────────────────────────────────
+                if self._geofence_type in (1, 3):   # Alt or Both
+                    if rel_alt > self._geofence_alt_max and not alt_breach_active:
+                        alt_breach_active = True
+                        msg = (f"🚨 GCS GeoFence BREACH — "
+                               f"Alt {rel_alt:.1f}m above limit ({self._geofence_alt_max:.0f}m)")
+                        print(f"[DroneCommander] {msg}")
+                        self.commandFeedback.emit(msg)
+                        self._trigger_fence_action()
+
+                    elif rel_alt <= self._geofence_alt_max:
+                        alt_breach_active = False    # Back inside — reset
+
+            except Exception as e:
+                print(f"[DroneCommander] ⚠️  GeoFence monitor error: {e}")
+
+        print("[DroneCommander] 🛡️  GeoFence monitor loop exited")
+
+    def _trigger_fence_action(self):
+        """Execute the user-configured fence breach action (RTL or Land)."""
+        action_name = "RTL" if self._geofence_action == 1 else "LAND"
+        print(f"[DroneCommander] 🛡️  GeoFence action: triggering {action_name}")
+        try:
+            mode_id = self._drone.mode_mapping().get(action_name)
+            if mode_id is None:
+                print(f"[DroneCommander] ❌ Mode '{action_name}' not found in mode map")
+                return
+            self._drone.mav.set_mode_send(
+                self._drone.target_system,
+                mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+                mode_id)
+            self.commandFeedback.emit(
+                f"🛡️ GeoFence action executed: {action_name}")
+            print(f"[DroneCommander] ✅ GeoFence {action_name} mode set")
+        except Exception as e:
+            print(f"[DroneCommander] ❌ GeoFence action error: {e}")
 
     # ═══════════════════════════════════════════════════════════════════════
     # BATTERY FAILSAFE CONFIGURATION

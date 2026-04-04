@@ -57,7 +57,7 @@ ApplicationWindow {
     // ============================================================
     // Global Properties
     // ============================================================
-    property var mapViewInstance:            null
+    property var mapViewInstance:            mainMapView
     property var navigationControlsInstance: null
 
     // Security properties

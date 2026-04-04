@@ -214,7 +214,8 @@ Row {
                             if (c.status === Component.Ready) {
                                 var w = c.createObject(mainWindowRef, {
                                     droneCommander: droneCommander,
-                                    droneModel: droneModel
+                                    droneModel: droneModel,
+                                    mainGcsWindow: mainWindowRef
                                 })
                                 if (w) {
                                     mainWindowRef.navigationControlsWindowInstance = w

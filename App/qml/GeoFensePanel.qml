@@ -315,8 +315,98 @@ Rectangle {
                     console.log("GeoFence write sent — Enable:", geoFenceEnabled,
                                 "Type:", fenceType, "Action:", fenceAction,
                                 "MaxAlt:", maxAltitude, "Radius:", maxRadius)
+                    geoFenceWrittenPopup.open()
                 }
             }
+        }
+    }
+
+    // ================= GEO FENCE WRITTEN POPUP =================
+    Popup {
+        id: geoFenceWrittenPopup
+        anchors.centerIn: Overlay.overlay
+        width: 260
+        height: 90
+        modal: false
+        closePolicy: Popup.NoAutoClose
+        padding: 0
+
+        // Auto-close after 2.5 seconds
+        Timer {
+            id: popupAutoClose
+            interval: 2500
+            running: geoFenceWrittenPopup.visible
+            repeat: false
+            onTriggered: geoFenceWrittenPopup.close()
+        }
+
+        background: Rectangle {
+            radius: 10
+            color: "#1a1a2e"
+            border.color: "#3daee9"
+            border.width: 2
+
+            // Glow effect
+            layer.enabled: true
+        }
+
+        contentItem: Item {
+            anchors.fill: parent
+
+            // Check icon
+            Rectangle {
+                id: checkCircle
+                width: 32
+                height: 32
+                radius: 16
+                color: "#21be2b"
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.leftMargin: 16
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "✓"
+                    color: "white"
+                    font.pixelSize: 18
+                    font.bold: true
+                }
+            }
+
+            Column {
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: checkCircle.right
+                anchors.leftMargin: 12
+                anchors.right: parent.right
+                anchors.rightMargin: 12
+                spacing: 2
+
+                Text {
+                    text: "Geo Fence Written"
+                    color: "#ffffff"
+                    font.pixelSize: 14
+                    font.bold: true
+                    font.family: "Consolas"
+                }
+
+                Text {
+                    text: "Parameters saved to drone"
+                    color: "#aaaacc"
+                    font.pixelSize: 11
+                    font.family: "Consolas"
+                }
+            }
+        }
+
+        // Fade-in animation
+        enter: Transition {
+            NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: 250; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "scale"; from: 0.85; to: 1.0; duration: 250; easing.type: Easing.OutBack }
+        }
+
+        // Fade-out animation
+        exit: Transition {
+            NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: 200; easing.type: Easing.InCubic }
         }
     }
 }

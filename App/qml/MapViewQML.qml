@@ -1769,6 +1769,30 @@ Item {
         markersChanged()
     }
 
+    // Replace the local markers with a new set without clearing actual/uploaded paths
+    function setMarkersOnly(newMarkers) {
+        markersModel.clear()
+        markers = []
+        for (var i = 0; i < newMarkers.length; i++) {
+            var m = newMarkers[i]
+            markersModel.append({
+                lat: m.lat, 
+                lng: m.lng, 
+                altitude: m.altitude || 10, 
+                speed: m.speed || 5, 
+                commandType: m.commandType || "waypoint"
+            })
+            markers.push({
+                lat: m.lat, lng: m.lng, 
+                altitude: m.altitude || 10, 
+                speed: m.speed || 5, 
+                commandType: m.commandType || "waypoint"
+            })
+        }
+        markersChanged()
+    }
+
+
     function clearPolygon() { polygonCorners = []; polygonCornersChanged(); polygonCanvas.requestPaint() }
 
     function startMissionTracking() {

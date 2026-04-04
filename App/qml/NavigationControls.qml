@@ -25,6 +25,7 @@ ApplicationWindow {
     property var waypoints: []
     property bool isDragging: false
     property var pendingWaypointData: ""  // ✅ Correct
+    property var mainGcsWindow: null      // Reference to the main GCS window for syncing map views
 
     QtObject {
         id: theme
@@ -3873,6 +3874,16 @@ function updateWaypointDashboard() {
                     });
                    
                     console.log("Dashboard waypoints length after update:", waypointDashboard.waypoints.length);
+
+                    // ---- SYNCHRONIZE WITH MAIN MAP -----
+                    console.log("SYNC DEBUG: mainGcsWindow type:", typeof mainGcsWindow);
+                    if (typeof mainGcsWindow !== 'undefined' && mainGcsWindow && mainGcsWindow.mapViewInstance) {
+                        console.log("SYNC DEBUG: syncing to mainGcsWindow.mapViewInstance...");
+                        mainGcsWindow.mapViewInstance.setMarkersOnly(markersData);
+                    } else {
+                        console.log("SYNC DEBUG: Failed to find main window map instance!");
+                    }
+                    // ------------------------------------
                 } catch (e) {
                     console.log("Error parsing markers data:", e);
                     waypointDashboard.updateWaypoints([]);
