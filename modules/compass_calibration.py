@@ -60,6 +60,8 @@ class MissionPlannerCompassCalibration(QObject):
         # CRITICAL FIX: Completion tracking to prevent multiple sounds
         self._completion_sound_played = False
         self._last_completion_check = 0
+        # Per-compass success tracking (compass_id -> success)
+        self._successful_compasses = set()
         
         # Hardware buzzer state - FIXED for Pixhawk
         self._buzzer_available = False
@@ -90,16 +92,12 @@ class MissionPlannerCompassCalibration(QObject):
         self._completion_timer.setSingleShot(False)
         self._completion_timer.setInterval(500)  # Check every 500ms
 
-        # ── Smooth progress animation ─────────────────────────────────────────
-        # Increments display by 1% every 900 ms so the bar moves smoothly
-        # (1-100 in ~90 s). Real ArduPilot confirmations set the floor so the
-        # bar never goes backward below a confirmed value.
-        self._smooth_timer = QTimer()
-        self._smooth_timer.timeout.connect(self._smooth_tick)
-        self._smooth_timer.setInterval(300)       # 1% per 300 ms ≈ 30 s total (matches Mission Planner speed)
+        # ── Mission Planner style: NO artificial smooth animation ─────────────
+        # Progress updates ONLY from real MAVLink messages (COMPASS_CAL_PROGRESS,
+        # COMPASS_CAL_REPORT, STATUSTEXT). The _confirmed_floor tracks the highest
+        # real progress received so bars never go backward.
         self._confirmed_floor = 0.0               # highest ArduPilot-confirmed %
 
-        
         # Mission Planner orientation descriptions
         self._orientations = [
             "Please rotate the vehicle so that the FRONT points down",
@@ -194,26 +192,34 @@ class MissionPlannerCompassCalibration(QObject):
         self.compassCountChanged.emit()
 
     def _update_progress_safe(self, compass_id, progress_value):
-        """CRITICAL FIX: Simplified, thread-safe progress updates"""
+        """Mission Planner style: Update directly from MAVLink, never go backward."""
         try:
             progress_float = float(progress_value)
-            print(f"[Compass] Updating compass {compass_id}: {progress_float}%")
-            
+
             with self._progress_lock:
+                # Mission Planner: Progress only goes forward (never backward)
                 if compass_id == 0:
-                    self._mag1_progress = progress_float
+                    new_val = max(self._mag1_progress, progress_float)
+                    self._mag1_progress = new_val
+                    self._confirmed_floor = max(self._confirmed_floor, new_val)
                 elif compass_id == 1:
-                    self._mag2_progress = progress_float  
+                    new_val = max(self._mag2_progress, progress_float)
+                    self._mag2_progress = new_val
+                elif compass_id == 2:
+                    new_val = max(self._mag3_progress, progress_float)
+                    self._mag3_progress = new_val
                 else:
                     print(f"[Compass] Invalid compass ID: {compass_id}")
                     return False
-            
-            # CRITICAL: Always emit signals on main thread
+
+                print(f"[Compass] Compass {compass_id+1} progress: {progress_float:.1f}% (display: {new_val:.1f}%)")
+
+            # Emit signals on main thread
             QMetaObject.invokeMethod(self, "_emit_progress_signals", Qt.QueuedConnection)
             self._last_progress_time = time.time()
-            
+
             return True
-            
+
         except Exception as e:
             print(f"[Compass] Progress update error: {e}")
             return False
@@ -455,8 +461,9 @@ class MissionPlannerCompassCalibration(QObject):
         # CRITICAL FIX: Reset completion tracking
         self._completion_sound_played = False
         self._last_completion_check = 0
-        
-        # Reset smooth-progress state
+        self._successful_compasses = set()  # Reset per-compass success tracker
+
+        # Mission Planner: Reset confirmed progress floor
         self._confirmed_floor = 0.0
 
         # Reset progress
@@ -483,6 +490,11 @@ class MissionPlannerCompassCalibration(QObject):
         if self._mavlink_connection:
             # REAL HARDWARE MODE — always preferred when a connection exists
             self._use_simulated_progress = False
+
+            # CRITICAL FIX: Ensure push_mavlink_msg is registered with MAVLink thread
+            # This handles cases where the initial wiring in main.py didn't work
+            self._ensure_mavlink_callback_registered()
+
             self._send_compass_calibration_start()
 
             # Start monitoring thread
@@ -500,8 +512,7 @@ class MissionPlannerCompassCalibration(QObject):
         # Start heartbeat timer for periodic beeps
         self._heartbeat_timer.start(5000)  # Every 5 seconds
 
-        # Start smooth progress animation (1% per 900 ms)
-        self._smooth_timer.start()
+        # Mission Planner: NO artificial progress animation - only real MAVLink data
 
         # CRITICAL FIX: Start completion verification timer
         self._completion_timer.start()
@@ -526,7 +537,6 @@ class MissionPlannerCompassCalibration(QObject):
         self._heartbeat_timer.stop()
         self._simulation_timer.stop()
         self._completion_timer.stop()
-        self._smooth_timer.stop()
         
         # Send MAVLink calibration cancel command
         if self._mavlink_connection:
@@ -558,28 +568,6 @@ class MissionPlannerCompassCalibration(QObject):
         QMetaObject.invokeMethod(self, "_emit_progress_signals", Qt.QueuedConnection)
         
         self._set_status("Forced progress update - Mag1: 45%, Mag2: 32%, Mag3: 28%")
-
-    @pyqtSlot()
-    def _smooth_tick(self):
-        """Increment progress by 1% per tick, capped at 99%.
-
-        The confirmed floor (set by real ArduPilot STATUSTEXT data) is always
-        respected — the display value can never go *below* the confirmed value,
-        but the animation keeps running until completion.
-        """
-        if not self._calibration_active:
-            self._smooth_timer.stop()
-            return
-
-        with self._progress_lock:
-            # Start from whichever is higher: current display or confirmed floor
-            current = max(self._mag1_progress, self._confirmed_floor)
-            # Increment by 1%, hard-cap at 99 so only real success reaches 100
-            new_val = min(99.0, current + 1.0)
-            self._mag1_progress = new_val
-            self._mag2_progress = new_val   # keep both bars in sync visually
-
-        QMetaObject.invokeMethod(self, "_emit_progress_signals", Qt.QueuedConnection)
 
      #reboot function
 
@@ -723,27 +711,60 @@ class MissionPlannerCompassCalibration(QObject):
                 break
     
     def _heartbeat_beep(self):
-        """Mission Planner heartbeat beep - periodic tick while calibrating"""
+        """Periodic calibration timeout check — no beep, no MAVLink spam."""
         if not self._calibration_started or not self._calibration_active:
             return
-        
-        # Check for timeout
+
         current_time = time.time()
-        if current_time - self._last_progress_time > self._progress_timeout:
-            self._set_status("Timeout - please rotate vehicle through all orientations")
-            # Don't stop, just warn
-        
-        # PLAY HEARTBEAT BEEP (periodic reminder)
-        if self._mavlink_connection:
-            self._play_pixhawk_buzzer("heartbeat", "Heartbeat reminder")
-        elif self._use_simulated_progress:
-            print("[Compass] Simulation: Heartbeat beep")
+        elapsed = current_time - self._last_progress_time
+        if elapsed > self._progress_timeout:
+            self._set_status(
+                f"⚠️ No data for {int(elapsed)}s — rotate the drone through all positions"
+            )
+            print(f"[Compass] WARNING: {int(elapsed)}s without progress message")
+        else:
+            print(f"[Compass] Heartbeat check OK — last progress {elapsed:.0f}s ago")
     
     def _get_write_lock(self):
         """Return the DroneModel write lock if available, else None."""
         if self.drone_model and hasattr(self.drone_model, '_mavlink_write_lock'):
             return self.drone_model._mavlink_write_lock
         return None
+
+    def _ensure_mavlink_callback_registered(self):
+        """Fallback: wire push_mavlink_msg to the MAVLink thread if not already done.
+
+        main.py's _wire_mavlink_callbacks_on_connect() registers this callback
+        when the drone connects.  This fallback catches the case where the
+        drone was already connected before the compass window was opened.
+        """
+        try:
+            if not self.drone_model:
+                return
+
+            thread = (getattr(self.drone_model, '_thread', None) or
+                      getattr(self.drone_model, 'thread',  None))
+            if not thread:
+                print("[Compass] MAVLink thread not found, cannot register callback")
+                return
+
+            # _msg_callbacks is the real list (see mavlink_thread.py line 22).
+            # The old code checked '_callbacks' which never exists, so the
+            # duplicate guard was always bypassed — every startCalibration()
+            # call added a second registration, doubling all queued messages.
+            callbacks = getattr(thread, '_msg_callbacks', None)
+            if callbacks is not None and self.push_mavlink_msg in callbacks:
+                print("[Compass] push_mavlink_msg already registered — skipping")
+                return
+
+            if hasattr(thread, 'register_msg_callback'):
+                thread.register_msg_callback(self.push_mavlink_msg)
+                print("[Compass] push_mavlink_msg registered with MAVLink thread")
+            else:
+                print("[Compass] WARNING: MAVLink thread has no register_msg_callback")
+
+        except Exception as e:
+            print(f"[Compass] Failed to register mavlink callback: {e}")
 
     def _send_compass_calibration_start(self):
         """ENHANCED: Start calibration with proper message stream requests"""
@@ -966,6 +987,11 @@ class MissionPlannerCompassCalibration(QObject):
             return
         try:
             self._msg_queue.put_nowait(msg)
+            # Debug: log first message received via callback
+            if not hasattr(self, '_debug_first_queue_msg'):
+                msg_type = msg.get_type() if hasattr(msg, 'get_type') else 'unknown'
+                print(f"[Compass] 📥 First message via callback: {msg_type}")
+                self._debug_first_queue_msg = True
         except queue.Full:
             pass  # Drop oldest-not-yet-consumed message; harmless
 
@@ -987,25 +1013,48 @@ class MissionPlannerCompassCalibration(QObject):
         last_fallback_time = time.time()
         last_status_time   = time.time()
 
+        # CRITICAL FIX: Direct polling fallback if queue stays empty
+        direct_poll_fallback = False
+
         while not self._stop_calibration and self._calibration_active:
             try:
-                # Block for up to 100 ms so we don’t busy-spin
+                msg = None
+
+                # Primary method: queue-based (via push_mavlink_msg callback)
                 try:
-                    msg = self._msg_queue.get(timeout=0.1)
-                    msg_type = msg.get_type()
-
-                    if msg_type in compass_msg_types:
-                        self._handle_mavlink_message(msg)
-
-                    elif any(kw in msg_type.lower() for kw in ('compass', 'mag', 'cal', 'offset')):
-                        self._handle_mavlink_message(msg)
-
+                    msg = self._msg_queue.get(timeout=0.05)  # 50ms timeout
                     no_message_count = 0
-
                 except queue.Empty:
                     no_message_count += 1
 
-                # Warn user if no real progress messages arrive — never fake completion
+                # Fallback: direct polling if queue empty for too long
+                if msg is None and no_message_count > 20 and self._mavlink_connection:
+                    if not direct_poll_fallback:
+                        print("[Compass] ⚠️ Queue empty >2s, enabling direct MAVLink polling fallback")
+                        direct_poll_fallback = True
+                    # Try to poll directly (non-blocking)
+                    try:
+                        msg = self._mavlink_connection.recv_match(
+                            type=list(compass_msg_types),
+                            blocking=False,
+                            timeout=0.05
+                        )
+                        if msg and not hasattr(self, '_debug_first_poll_msg'):
+                            print(f"[Compass] Direct poll got first message: {msg.get_type()}")
+                            self._debug_first_poll_msg = True
+                    except Exception as e:
+                        pass  # Poll failed, continue
+
+                # Process message if we got one
+                if msg:
+                    msg_type = msg.get_type()
+                    # Only route known compass/mag calibration message types.
+                    # NOTE: the old 'cal' substring check matched SCALED_IMU*
+                    # (s-c-a-l contains 'cal') causing hundreds of false dispatches.
+                    if msg_type in compass_msg_types:
+                        self._handle_mavlink_message(msg)
+
+                # Warn user if no real progress messages arrive
                 current_time = time.time()
                 if no_message_count > 50 and (current_time - last_fallback_time) > 2.0:
                     last_fallback_time = current_time
@@ -1014,11 +1063,11 @@ class MissionPlannerCompassCalibration(QObject):
                         self._set_status(
                             "⚠️ No calibration data received. Rotate drone through all positions."
                         )
-                        print(f"[Compass] WARNING: {int(elapsed)}s without COMPASS_CAL_PROGRESS "
-                              f"— check that push_mavlink_msg is wired to register_msg_callback")
+                        print(f"[Compass] WARNING: {int(elapsed)}s without COMPASS_CAL_PROGRESS")
 
                 if current_time - last_status_time > 10.0:
-                    print(f"[Compass] Monitoring alive — no-msg-count: {no_message_count}")
+                    mode = "DIRECT-POLL" if direct_poll_fallback else "QUEUE"
+                    print(f"[Compass] Monitoring alive ({mode}) — no-msg-count: {no_message_count}")
                     last_status_time = current_time
 
             except Exception as e:
@@ -1029,117 +1078,91 @@ class MissionPlannerCompassCalibration(QObject):
 
     
     def _handle_mavlink_message(self, msg):
-        """Handle incoming MAVLink messages - ENHANCED WITH PROGRESS FIX"""
+        """Handle incoming MAVLink messages.
+
+        ArduPilot emits MAG_CAL_PROGRESS (id 191) and MAG_CAL_REPORT (id 192).
+        Older pymavlink builds expose these as COMPASS_CAL_*.
+        We accept both names so nothing is silently dropped.
+        """
         try:
-            if msg.get_type() == 'COMPASS_CAL_PROGRESS':
+            msg_type = msg.get_type()
+            if msg_type in ('MAG_CAL_PROGRESS', 'COMPASS_CAL_PROGRESS'):
                 self._handle_progress_message(msg)
-            elif msg.get_type() == 'COMPASS_CAL_REPORT':
+            elif msg_type in ('MAG_CAL_REPORT', 'COMPASS_CAL_REPORT'):
                 self._handle_report_message(msg)
-            elif msg.get_type() == 'STATUSTEXT':
+            elif msg_type == 'STATUSTEXT':
                 self._handle_status_message(msg)
         except Exception as e:
             print(f"[Compass] Message handling error: {e}")
     
     def _handle_progress_message(self, msg):
-        """ENHANCED: Better automatic progress extraction from any MAVLink message"""
+        """Handle MAG_CAL_PROGRESS / COMPASS_CAL_PROGRESS.
+
+        Fields (ArduPilot MAG_CAL_PROGRESS, id 191):
+          compass_id      – 0-based compass index
+          completion_pct  – 0..100 integer progress
+          completion_mask – bitmask of satisfied rotations (8 bits)
+          cal_status      – current calibration phase
+        """
         try:
-            print(f"[Compass] Processing message: {msg.get_type()}")
-            
-            # Method 1: Try all possible progress field names
-            progress_fields = [
-                'completion_pct', 'completion_percent', 'progress', 'percent_complete',
-                'cal_progress', 'calibration_progress', 'mag_progress', 'compass_progress'
-            ]
-            
-            compass_id_fields = [
-                'compass_id', 'id', 'sensor_id', 'mag_id', 'device_id'
-            ]
-            
-            # Extract compass ID
-            compass_id = -1
-            for field in compass_id_fields:
-                if hasattr(msg, field):
-                    compass_id = getattr(msg, field, -1)
-                    if compass_id >= 0:
-                        break
-            
-            # Extract progress value
-            progress_value = -1
-            for field in progress_fields:
-                if hasattr(msg, field):
-                    progress_value = getattr(msg, field, -1)
-                    if progress_value >= 0:
-                        break
-            
-            # Method 2: Try to extract from completion_mask or similar
+            msg_type = msg.get_type()
+            print(f"[Compass] 📶 {msg_type}")
+
+            # ── Compass ID ──────────────────────────────────────────────────────
+            compass_id = int(getattr(msg, 'compass_id', 0))
+
+            # Update live compass count so the UI shows the right bars
+            if compass_id + 1 > self._compass_count:
+                self._compass_count = compass_id + 1
+                print(f"[Compass] Compass count updated to {self._compass_count}")
+                QMetaObject.invokeMethod(self, '_emit_progress_signals', Qt.QueuedConnection)
+                self.compassCountChanged.emit()
+
+            # ── Progress percentage ──────────────────────────────────────────────
+            progress_value = -1.0
+            for field in ('completion_pct', 'completion_percent', 'progress', 'percent_complete'):
+                val = getattr(msg, field, None)
+                if val is not None and float(val) >= 0:
+                    progress_value = float(val)
+                    break
+
+            # Fallback: derive from completion_mask (8 rotation buckets)
             if progress_value < 0:
-                for mask_field in ['completion_mask', 'cal_mask', 'status_mask']:
-                    if hasattr(msg, mask_field):
-                        mask_val = getattr(msg, mask_field, 0)
-                        if mask_val > 0:
-                            progress_value = min(100.0, float(mask_val * 100.0 / 255.0))
-                            break
-            
-            # Method 3: If we still don't have progress, check for any numeric field that might be progress
+                mask = getattr(msg, 'completion_mask', 0)
+                if mask and mask > 0:
+                    progress_value = min(100.0, bin(int(mask)).count('1') * 100.0 / 8.0)
+
             if progress_value < 0:
-                for attr_name in dir(msg):
-                    if not attr_name.startswith('_'):
-                        try:
-                            attr_val = getattr(msg, attr_name)
-                            if isinstance(attr_val, (int, float)) and 0 <= attr_val <= 100:
-                                progress_value = float(attr_val)
-                                print(f"[Compass] Found potential progress in field '{attr_name}': {progress_value}")
-                                break
-                        except:
-                            pass
-            
-            # Apply the progress update
-            success = False
-            if progress_value >= 0:
-                if compass_id >= 0:
-                    # Update specific compass
-                    success = self._update_progress_safe(compass_id, progress_value)
-                    print(f"[Compass] Updated compass {compass_id}: {progress_value}%")
-                else:
-                    # Update all compasses with slight variations
-                    for i in range(3):
-                        variation = progress_value - (i * 2)  # Slight variation between compasses
-                        variation = max(0, min(100, variation))
-                        self._update_progress_safe(i, variation)
-                    success = True
-                    print(f"[Compass] Updated all compasses around {progress_value}%")
-            
-            # Check for orientation milestones
-            if success and progress_value >= 0:
+                print(f"[Compass] Could not extract progress from {msg_type} — fields: {[f for f in dir(msg) if not f.startswith('_')]}")
+                return False
+
+            success = self._update_progress_safe(compass_id, progress_value)
+            if success:
                 self._check_orientation_milestone(progress_value)
-                
             return success
-            
+
         except Exception as e:
-            print(f"[Compass] Enhanced progress message handling error: {e}")
+            print(f"[Compass] Progress message handling error: {e}")
             return False
     
     def _check_orientation_milestone(self, progress):
-        """Check if we've reached a new orientation milestone with beep-beep sound"""
-        if self._current_orientation < 6 and not self._orientations_completed[self._current_orientation]:
-            # CHANGE THIS LINE - Make sure threshold is exactly what you want
-            if progress >= 90.0 and not self._orientations_completed[self._current_orientation]:  # Use 90% instead of 85%
-                self._orientations_completed[self._current_orientation] = True
-                print(f"[Compass] Orientation {self._current_orientation + 1}/6 completed ({progress}%)")
+        """Update status text based on actual calibration progress.
 
-                # PLAY BEEP-BEEP for orientation milestone
-                if self._mavlink_connection:
-                    self._play_pixhawk_buzzer("milestone", f"Orientation {self._current_orientation + 1} complete")
-                elif self._use_simulated_progress:
-                    print(f"[Compass] Simulation: Beep-beep for orientation {self._current_orientation + 1}")
-
-                self._current_orientation += 1
-                if self._current_orientation < 6:
-                    next_text = self._orientations[self._current_orientation]
-                    self._set_status(f"Orientation {self._current_orientation + 1}/6: {next_text}")
-                    QMetaObject.invokeMethod(self, "orientationChanged", Qt.QueuedConnection)
-                else:
-                    self._set_status("All orientations complete! Computing calibration...")
+        The old 6-step orientation tracker was designed for the legacy
+        MAV_CMD_PREFLIGHT_CALIBRATION flow (which prompted the user to hold
+        the drone in 6 fixed positions sequentially).  With MAV_CMD_DO_START_MAG_CAL
+        the calibration is free-rotation: ArduPilot reports a single
+        completion_pct that rises as the drone sweeps through all orientations.
+        We simply reflect that percentage in the status bar.
+        """
+        if progress < 25:
+            self._set_status(f"Calibrating... rotate the drone in all directions ({progress:.0f}%)")
+        elif progress < 50:
+            self._set_status(f"Calibrating... {progress:.0f}% - keep rotating in all directions")
+        elif progress < 75:
+            self._set_status(f"Calibrating... {progress:.0f}% - good progress, continue rotating")
+        elif progress < 99:
+            self._set_status(f"Calibrating... {progress:.0f}% - almost done, keep going!")
 
     # CRITICAL FIX: New verification timer method
     @pyqtSlot()
@@ -1173,10 +1196,9 @@ class MissionPlannerCompassCalibration(QObject):
                 self._mag1_progress = 100.0
                 self._mag2_progress = 100.0
 
-            # Stop timers before emitting so the smooth tick doesn't race
+            # Stop timers before emitting
             self._heartbeat_timer.stop()
             self._completion_timer.stop()
-            self._smooth_timer.stop()
 
             # Emit 100% to UI — QueuedConnection means it arrives on next event loop tick
             QMetaObject.invokeMethod(self, "_emit_progress_signals", Qt.QueuedConnection)
@@ -1219,103 +1241,108 @@ class MissionPlannerCompassCalibration(QObject):
                 self._completion_timer.stop()
     
     def _play_completion_sound_reliably(self):
-        """CRITICAL FIX: Play completion sound with multiple attempts to ensure it works"""
+        """Play a single completion beep on the Pixhawk buzzer."""
         print("[Compass] === PLAYING COMPLETION SOUND ===")
-        
         if self._mavlink_connection:
-            print("[Compass] Attempting hardware completion sound...")
-            
-            # Try multiple times to ensure the sound plays
-            for attempt in range(3):
-                try:
-                    success = self._play_pixhawk_buzzer("completion", f"Calibration 100% complete (attempt {attempt + 1})")
-                    if success:
-                        print(f"[Compass] SUCCESS: Completion sound sent on attempt {attempt + 1}")
-                        break
-                    else:
-                        print(f"[Compass] FAILED: Completion sound attempt {attempt + 1}")
-                        time.sleep(0.2)  # Brief delay before retry
-                except Exception as e:
-                    print(f"[Compass] ERROR on completion sound attempt {attempt + 1}: {e}")
-                    time.sleep(0.2)
-            
-            # Alternative: Try with different tune patterns
-            alternative_tunes = ["success", "completion", "startup"]
-            for tune in alternative_tunes:
-                try:
-                    print(f"[Compass] Trying alternative completion tune: {tune}")
-                    success = self._play_pixhawk_buzzer(tune, f"Completion alternative: {tune}")
-                    if success:
-                        print(f"[Compass] SUCCESS: Alternative tune {tune} worked")
-                        break
-                    time.sleep(0.1)
-                except Exception as e:
-                    print(f"[Compass] Alternative tune {tune} failed: {e}")
-                    
-        elif self._use_simulated_progress:
-            print("[Compass] *** SIMULATION: COMPLETION SOUND PLAYED ***")
-            print("[Compass] *** Mission Planner style success melody: CCDE ***")
-        
-        print("[Compass] === COMPLETION SOUND SEQUENCE FINISHED ===")
+            self._play_pixhawk_buzzer("success", "Calibration complete")
+        else:
+            print("[Compass] Simulation: completion sound")
+        print("[Compass] === COMPLETION SOUND DONE ===")
     
     def _handle_report_message(self, msg):
-        """Handle COMPASS_CAL_REPORT messages with proper beep sounds"""
+        """Handle MAG_CAL_REPORT / COMPASS_CAL_REPORT messages.
+
+        On SUCCESS: auto-accept the calibration (mirrors MAVProxy behaviour)
+        and push progress bars to 100%.
+        On FAILURE: retry or stop.
+        """
         cal_status = getattr(msg, 'cal_status', -1)
-        
-        print(f"[Compass] === CALIBRATION REPORT ===")
-        print(f"[Compass] Cal status: {cal_status}")
-        
-        MAG_CAL_SUCCESS       = 4
-        MAG_CAL_FAILED        = 5
-        MAG_CAL_BAD_ORIENT    = 6
-        MAG_CAL_BAD_RADIUS    = 7
+        compass_id = int(getattr(msg, 'compass_id', 0))
+        fitness    = getattr(msg, 'fitness', 0.0)
+
+        print(f"[Compass] === CALIBRATION REPORT === compass_id={compass_id} status={cal_status} fitness={fitness:.3f}")
+
+        MAG_CAL_SUCCESS    = 4
+        MAG_CAL_FAILED     = 5
+        MAG_CAL_BAD_ORIENT = 6
+        MAG_CAL_BAD_RADIUS = 7
 
         if cal_status == MAG_CAL_SUCCESS:
-            # ArduPilot confirmed success — force both to 100%
+            print(f"[Compass] Compass {compass_id} SUCCESS (fitness={fitness:.3f})")
+
+            # Track which compasses have succeeded (each calibrates independently)
+            self._successful_compasses.add(compass_id)
+
+            # ── Auto-accept this compass (MAVProxy style) ───────────────────────
+            if self._mavlink_connection:
+                try:
+                    MAV_CMD_DO_ACCEPT_MAG_CAL = getattr(
+                        mavutil.mavlink, 'MAV_CMD_DO_ACCEPT_MAG_CAL', 42425)
+                    write_lock = self._get_write_lock()
+                    def _accept():
+                        self._mavlink_connection.mav.command_long_send(
+                            self._pixhawk_target_system,
+                            self._pixhawk_target_component,
+                            MAV_CMD_DO_ACCEPT_MAG_CAL,
+                            0,
+                            1 << compass_id,  # bitmask: only THIS compass
+                            0, 0, 0, 0, 0, 0
+                        )
+                    if write_lock:
+                        with write_lock: _accept()
+                    else:
+                        _accept()
+                    print(f"[Compass] Sent MAV_CMD_DO_ACCEPT_MAG_CAL for compass {compass_id}")
+                except Exception as e:
+                    print(f"[Compass] Auto-accept send failed: {e}")
+
+            # ── Set only THIS compass's bar to 100% ─────────────────────────────
+            # Other compasses may still be calibrating — do NOT push them yet.
             with self._progress_lock:
-                self._mag1_progress = 100.0
-                self._mag2_progress = 100.0
+                if compass_id == 0:
+                    self._mag1_progress = 100.0
+                elif compass_id == 1:
+                    self._mag2_progress = 100.0
+                elif compass_id == 2:
+                    self._mag3_progress = 100.0
             QMetaObject.invokeMethod(self, "_emit_progress_signals", Qt.QueuedConnection)
-            self._force_completion_check()
+
+            # ── Check if ALL active compasses have succeeded ─────────────────────
+            all_done = all(i in self._successful_compasses
+                           for i in range(self._compass_count))
+            if all_done:
+                print(f"[Compass] All {self._compass_count} compass(es) succeeded!")
+                self._force_completion_check()
 
         elif cal_status in (MAG_CAL_FAILED, MAG_CAL_BAD_ORIENT, MAG_CAL_BAD_RADIUS):
             failure_reasons = {
                 MAG_CAL_FAILED:     "Calibration failed",
-                MAG_CAL_BAD_ORIENT: "Bad orientation detected — keep drone still at each position",
+                MAG_CAL_BAD_ORIENT: "Bad orientation — hold drone still at each position",
                 MAG_CAL_BAD_RADIUS: "Bad radius — check for nearby magnetic interference",
             }
             reason = failure_reasons.get(cal_status, f"Calibration failed (status {cal_status})")
-
             self._retry_attempt += 1
 
             if self._retry_attempt < self._max_retries:
-                self._set_status(f"❌ {reason}. Retrying... ({self._retry_attempt + 1}/{self._max_retries})")
-                if self._mavlink_connection:
-                    self._play_pixhawk_buzzer("failure", "Calibration failed - retrying")
-
+                self._set_status(f"❌ {reason}. Retrying… ({self._retry_attempt + 1}/{self._max_retries})")
                 self._current_orientation = 0
                 self._orientations_completed = [False] * 6
                 self._completion_sound_played = False
-
                 with self._progress_lock:
                     self._mag1_progress = 0.0
                     self._mag2_progress = 0.0
-
-                QMetaObject.invokeMethod(self, "_emit_progress_signals", Qt.QueuedConnection)
-                QMetaObject.invokeMethod(self, "calibrationFailed", Qt.QueuedConnection)
-                QMetaObject.invokeMethod(self, "retryAttemptChanged", Qt.QueuedConnection)
-
+                    self._mag3_progress = 0.0
+                QMetaObject.invokeMethod(self, "_emit_progress_signals",  Qt.QueuedConnection)
+                QMetaObject.invokeMethod(self, "calibrationFailed",       Qt.QueuedConnection)
+                QMetaObject.invokeMethod(self, "retryAttemptChanged",     Qt.QueuedConnection)
                 time.sleep(1)
                 self._send_compass_calibration_start()
             else:
                 self._set_status(f"❌ {reason}. Max retries reached — check for magnetic interference.")
-                if self._mavlink_connection:
-                    self._play_pixhawk_buzzer("failure", "Calibration failed permanently")
                 self.stopCalibration()
-
         else:
-            # Ongoing status (0-3) — not a terminal report, ignore
-            print(f"[Compass] COMPASS_CAL_REPORT non-terminal status: {cal_status} — ignoring")
+            # Non-terminal status (0-3) — calibration still in progress
+            print(f"[Compass] Non-terminal report status: {cal_status} — ignoring")
     
     def _handle_status_message(self, msg):
         """Parse ArduPilot STATUSTEXT messages that carry compass calibration progress.
@@ -1360,8 +1387,7 @@ class MissionPlannerCompassCalibration(QObject):
                 print(f"[Compass] STATUSTEXT: compass {compass_num} → "
                       f"orientation {orient_idx} done ({n_done}/6 = {pct}%)")
 
-                # Update the confirmed floor — the smooth animation will never
-                # drop below this value; it continues incrementing from here.
+                # Mission Planner: Update confirmed floor - progress never goes backward
                 self._confirmed_floor = max(self._confirmed_floor, pct)
                 self._check_orientation_milestone(pct)
                 return
@@ -1436,36 +1462,11 @@ class MissionPlannerCompassCalibration(QObject):
 
     @pyqtSlot()
     def _emit_progress_signals(self):
-        """FIXED: Guaranteed signal emission"""
+        """Emit progress signals to QML on the main thread."""
         try:
-            # Get current values safely
-            with self._progress_lock:
-                mag1_val = self._mag1_progress
-                mag2_val = self._mag2_progress  
-                mag3_val = self._mag3_progress
-            
-            print(f"[Compass] Emitting signals: Mag1={mag1_val}%, Mag2={mag2_val}%, Mag3={mag3_val}%")
-            
-            # Force property change detection by temporarily changing values
-            old_vals = (self._mag1_progress, self._mag2_progress, self._mag3_progress)
-            
-            # Temporarily set to -1 to force change
-            self._mag1_progress = -1
-            self._mag2_progress = -1  
-            self._mag3_progress = -1
-            
-            # Restore actual values
-            self._mag1_progress = mag1_val
-            self._mag2_progress = mag2_val
-            self._mag3_progress = mag3_val
-            
-            # Emit all signals
             self.mag1ProgressChanged.emit()
-            self.mag2ProgressChanged.emit() 
+            self.mag2ProgressChanged.emit()
             self.calibrationProgressChanged.emit()
-            
-            print("[Compass] All progress signals emitted successfully")
-            
         except Exception as e:
             print(f"[Compass] Signal emission failed: {e}")
     
