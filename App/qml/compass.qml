@@ -101,9 +101,9 @@ ApplicationWindow {
         id: rebootBanner
         visible: false
         z: 100
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
+        anchors.top: root.top
+        anchors.left: root.left
+        anchors.right: root.right
         height: 52
         color: "#f59e0b"
 
@@ -749,19 +749,18 @@ ApplicationWindow {
                     // ── Progress bars ─────────────────────────────────────────
                     Repeater {
                         model: [
-                            { name: "Magnetometer 1",
-                              progress: compassCalibrationModel ? compassCalibrationModel.mag1Progress : 0,
-                              barColor: "#3b82f6", shimColor: "#93c5fd", bgColor: "#eff6ff", trackColor: "#dbeafe" },
-                            { name: "Magnetometer 2",
-                              progress: compassCalibrationModel ? compassCalibrationModel.mag2Progress : 0,
-                              barColor: "#10b981", shimColor: "#6ee7b7", bgColor: "#f0fdf4", trackColor: "#d1fae5" },
-                            { name: "Magnetometer 3",
-                              progress: compassCalibrationModel ? compassCalibrationModel.mag3Progress : 0,
-                              barColor: "#f59e0b", shimColor: "#fcd34d", bgColor: "#fffbeb", trackColor: "#fde68a" }
+                            { name: "Magnetometer 1", magId: 1, barColor: "#3b82f6", shimColor: "#93c5fd", bgColor: "#eff6ff", trackColor: "#dbeafe" },
+                            { name: "Magnetometer 2", magId: 2, barColor: "#10b981", shimColor: "#6ee7b7", bgColor: "#f0fdf4", trackColor: "#d1fae5" },
+                            { name: "Magnetometer 3", magId: 3, barColor: "#f59e0b", shimColor: "#fcd34d", bgColor: "#fffbeb", trackColor: "#fde68a" }
                         ]
 
                         RowLayout {
                             Layout.fillWidth: true; spacing: 12
+
+                            readonly property real currentProgress: compassCalibrationModel ? 
+                                (modelData.magId === 1 ? compassCalibrationModel.mag1Progress :
+                                 modelData.magId === 2 ? compassCalibrationModel.mag2Progress :
+                                 compassCalibrationModel.mag3Progress) : 0
 
                             // Label
                             Text {
@@ -771,95 +770,49 @@ ApplicationWindow {
 
                             // Track
                             Rectangle {
-                                Layout.fillWidth: true; height: 34
+                                Layout.fillWidth: true; height: 28
                                 color: modelData.trackColor
-                                border.color: Qt.darker(modelData.trackColor, 1.12); border.width: 1
-                                radius: 9; clip: true
+                                radius: 6; clip: true
 
-                                // Fill bar
+                                // Simple solid fill bar
                                 Rectangle {
-                                    id: fillBar
-                                    width: parent.width * Math.max(0, Math.min(1, modelData.progress / 100.0))
-                                    height: parent.height; radius: 9; clip: true
-                                    gradient: Gradient {
-                                        orientation: Gradient.Horizontal
-                                        GradientStop { position: 0.0; color: Qt.darker(modelData.barColor, 1.12) }
-                                        GradientStop { position: 0.5; color: modelData.barColor }
-                                        GradientStop { position: 1.0; color: Qt.lighter(modelData.barColor, 1.2) }
-                                    }
-                                    Behavior on width { NumberAnimation { duration: 420; easing.type: Easing.OutCubic } }
-
-                                    // Shimmer sweep
-                                    Rectangle {
-                                        id: shimmer
-                                        width: 90; height: parent.height; opacity: 0.30
-                                        gradient: Gradient {
-                                            orientation: Gradient.Horizontal
-                                            GradientStop { position: 0.0; color: "transparent" }
-                                            GradientStop { position: 0.5; color: modelData.shimColor }
-                                            GradientStop { position: 1.0; color: "transparent" }
-                                        }
-                                        SequentialAnimation on x {
-                                            running: compassCalibrationModel && compassCalibrationModel.calibrationStarted && modelData.progress < 100
-                                            loops: Animation.Infinite
-                                            NumberAnimation { from: -90; to: fillBar.width + 10; duration: 1100; easing.type: Easing.InOutSine }
-                                            PauseAnimation  { duration: 250 }
-                                        }
-                                    }
-
-                                    // Diagonal stripe texture
-                                    Repeater {
-                                        model: 25
-                                        Rectangle {
-                                            x: index * 22 - 8; y: 0
-                                            width: 8; height: fillBar.height
-                                            rotation: 22; opacity: 0.07; color: "white"
-                                        }
-                                    }
+                                    width: parent.width * Math.max(0, Math.min(1, currentProgress / 100.0))
+                                    height: parent.height
+                                    color: modelData.barColor
+                                    radius: 6
+                                    Behavior on width { NumberAnimation { duration: 200 } }
                                 }
 
-                                // Percentage label
+                                // Percentage label (always on top)
                                 Text {
-                                    id: pctText
                                     anchors.centerIn: parent
-                                    text: { var p = modelData.progress; return isNaN(p) ? "—" : Math.round(p) + "%" }
-                                    color: modelData.progress > 50 ? "white" : Qt.darker(modelData.barColor, 1.3)
+                                    text: { var p = currentProgress; return isNaN(p) ? "—" : Math.round(p) + "%" }
+                                    color: currentProgress > 45 ? "white" : Qt.darker(modelData.barColor, 1.4)
                                     font.pixelSize: 11; font.weight: Font.DemiBold
                                 }
-
-                                // Completion pulse ring
-                                Rectangle {
-                                    visible: modelData.progress >= 100
-                                    anchors.fill: parent; radius: 9
-                                    color: "transparent"
-                                    border.color: modelData.barColor; border.width: 2
-                                    SequentialAnimation on opacity {
-                                        running: modelData.progress >= 100; loops: 3
-                                        NumberAnimation { from: 1; to: 0; duration: 450 }
-                                        NumberAnimation { from: 0; to: 1; duration: 450 }
-                                    }
-                                }
                             }
+
 
                             // Status dot
                             Rectangle {
                                 width: 34; height: 34; radius: 17
-                                color: modelData.progress >= 100 ? modelData.bgColor
-                                     : modelData.progress > 0    ? "#fef3c7"
+                                color: currentProgress >= 100 ? modelData.bgColor
+                                     : currentProgress > 0    ? "#fef3c7"
                                      : "#f3f4f6"
-                                border.color: modelData.progress >= 100 ? modelData.barColor
-                                            : modelData.progress > 0    ? warningColor
+                                border.color: currentProgress >= 100 ? modelData.barColor
+                                            : currentProgress > 0    ? warningColor
                                             : borderColor
                                 border.width: 2
 
                                 Text {
                                     anchors.centerIn: parent
-                                    text: modelData.progress >= 100 ? "✓" : modelData.progress > 0 ? "●" : "○"
-                                    color: modelData.progress >= 100 ? modelData.barColor
-                                         : modelData.progress > 0    ? warningColor : textSecondary
+                                    text: currentProgress >= 100 ? "✓" : currentProgress > 0 ? "●" : "○"
+                                    color: currentProgress >= 100 ? modelData.barColor
+                                         : currentProgress > 0    ? warningColor : textSecondary
                                     font.pixelSize: 13
+
                                     SequentialAnimation on scale {
-                                        running: modelData.progress >= 100
+                                        running: currentProgress >= 100
                                         NumberAnimation { from: 0.5; to: 1.25; duration: 200; easing.type: Easing.OutBack }
                                         NumberAnimation { from: 1.25; to: 1.0;  duration: 150 }
                                     }

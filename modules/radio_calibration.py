@@ -111,36 +111,53 @@ class RadioCalibrationModel(QObject):
 
     # ── PUBLIC SLOTS called by MAVLinkThread ──────────────────────────────
 
+    # Minimum PWM change (µs) required before updating the UI display.
+    # RC receivers produce ±1-2 µs of noise at idle, which causes the value
+    # labels to flicker 1499↔1500 constantly.  A 3 µs deadband is invisible
+    # to the user but eliminates the noise entirely.
+    # Min/max tracking for calibration is NOT deadbanded (uses raw values).
+    _DISPLAY_DEADBAND = 3
+
     @pyqtSlot(object)
     def on_rc_channels_message(self, msg):
         """
         Called by MAVLinkThread whenever an RC_CHANNELS message arrives.
-        This is the primary data path and replaces the old recv_match() polling
-        loop so we never compete with MAVLinkThread for serial data.
-        Also updates display values even when calibration is not active.
+        Primary data path — zero serial-port competition with MAVLinkThread.
+        Applies a small deadband to the display values so normal RC receiver
+        noise (±1-2 µs) doesn't cause constant UI flickering.
+        Min/max calibration tracking always uses the raw unfiltered value.
         """
         new_channels = self._extract_channels(msg)
 
         if not self._calibration_active:
-            # Keep display values live even outside of calibration
+            # Keep display values live even outside calibration, with deadband
             if any(v > 0 for v in new_channels[:4]):
-                self._radio_channels = new_channels
-                self.radioChannelsChanged.emit()
+                display_changed = False
+                for i, value in enumerate(new_channels):
+                    if abs(value - self._radio_channels[i]) > self._DISPLAY_DEADBAND:
+                        self._radio_channels[i] = value
+                        display_changed = True
+                if display_changed:
+                    self.radioChannelsChanged.emit()
             return
 
         channels_updated = 0
+        display_changed = False
         for i, value in enumerate(new_channels):
             if 900 < value < 2200:          # valid PWM range
-                self._radio_channels[i] = value
                 channels_updated += 1
 
                 if self._calibration_step == 1:
+                    # Min/max tracking uses the raw value — no deadband here
                     if value < self._step1_min[i]:
                         self._step1_min[i] = value
-                        print(f"[RadioCalibration] {self._channel_names[i]} new minimum: {value}")
                     if value > self._step1_max[i]:
                         self._step1_max[i] = value
-                        print(f"[RadioCalibration] {self._channel_names[i]} new maximum: {value}")
+
+                # Apply deadband only to the displayed value
+                if abs(value - self._radio_channels[i]) > self._DISPLAY_DEADBAND:
+                    self._radio_channels[i] = value
+                    display_changed = True
 
         if channels_updated >= 4:
             self._samples_collected += 1
@@ -148,7 +165,8 @@ class RadioCalibrationModel(QObject):
                 self._step1_samples += 1
             elif self._calibration_step == 2:
                 self._step2_samples += 1
-            self.radioChannelsChanged.emit()
+            if display_changed:
+                self.radioChannelsChanged.emit()
 
     @pyqtSlot(object)
     def on_rc_channels_raw_message(self, msg):
@@ -207,18 +225,24 @@ class RadioCalibrationModel(QObject):
         self._step1_samples = 0
         self._step2_samples = 0
 
-        # Seed calibration bounds from current live channel readings.
-        # Fall back to _get_current_radio_values() if _radio_channels are stale.
+        # Seed calibration tracking arrays.
+        # _step1_min starts HIGH (2000) so the first real reading always becomes the new min.
+        # _step1_max starts LOW  (1000) so the first real reading always becomes the new max.
+        # Do NOT seed them to the current live value — that would give a zero initial range.
+        for i in range(18):
+            self._step1_min[i] = 2000
+            self._step1_max[i] = 1000
+
+        # Seed _channel_min/max/trim to current live readings as a safe fallback,
+        # so if the user skips everything they still get plausible initial values.
         current_values = self._get_current_radio_values()
         for i in range(18):
-            v = self._radio_channels[i] if self._radio_channels[i] > 0 else current_values[i]
-            if v <= 0:
+            v = self._radio_channels[i] if self._radio_channels[i] > 900 else current_values[i]
+            if v <= 900:
                 v = 1000 if i == 2 else 1500
-            self._channel_min[i] = v
-            self._channel_max[i] = v
+            self._channel_min[i]  = v
+            self._channel_max[i]  = v
             self._channel_trim[i] = v
-            self._step1_min[i] = v
-            self._step1_max[i] = v
 
         # Special handling for throttle (channel 3, index 2)
         self._channel_min[2] = min(self._channel_min[2], 1000)
@@ -226,11 +250,14 @@ class RadioCalibrationModel(QObject):
 
         self._set_status_message("Step 1: Move all sticks, knobs and switches to their extreme positions")
 
-        # Request 50 Hz RC_CHANNELS during calibration for responsive capture
+        # Request 50 Hz RC_CHANNELS during calibration for responsive capture.
+        # Primary data path: MAVLinkThread pushes RC_CHANNELS straight into
+        # on_rc_channels_message() — no polling, no serial-port competition.
         self._request_rc_rate(50)
 
-        # _update_timer kept as polling fallback (lower priority than push path)
-        self._update_timer.start(20)
+        # _update_timer is kept stopped — the push-path via register_msg_callback
+        # delivers data with ~zero latency so polling is unnecessary.
+        # (timer.stop() is still called in stopCalibration for safety)
         self._calibration_timer.start(self._calibration_timeout * 1000)
         self._step_timer.start(100)
 
@@ -264,40 +291,76 @@ class RadioCalibrationModel(QObject):
             return
 
         if self._calibration_step == 1:
-            print("[RadioCalibration] Step 1 complete - captured extreme positions")
-
-            # Commit extreme values captured in step 1
-            for i in range(18):
-                self._channel_min[i] = self._step1_min[i]
-                self._channel_max[i] = self._step1_max[i]
-                rng = abs(self._channel_max[i] - self._channel_min[i])
-                if rng < 100:
-                    print(f"[RadioCalibration WARNING] {self._channel_names[i]} small range: {rng}us")
-
+            self._commit_step1_extremes()
             self._calibration_step = 2
             self._step2_samples = 0
             self._set_calibration_progress(66)
             self._set_status_message("Step 2: Center all sticks and set throttle to minimum")
-
             self._calibration_timer.stop()
             self._calibration_timer.start(self._calibration_timeout * 1000)
 
         elif self._calibration_step == 2:
             print("[RadioCalibration] Step 2 complete - captured center positions")
-
             for i in range(18):
-                if i == 2:  # Throttle: trim at minimum
+                if i == 2:
                     self._channel_trim[i] = self._channel_min[i]
-                    print(f"[RadioCalibration] Throttle trim set to minimum: {self._channel_trim[i]}")
                 else:
                     self._channel_trim[i] = self._radio_channels[i]
-                    print(f"[RadioCalibration] {self._channel_names[i]} trim: {self._channel_trim[i]}")
-
             self._calibration_step = 3
             self._set_calibration_progress(100)
             self._set_status_message("Calibration complete - Review values and save settings")
             self._complete_calibration()
 
+        self.calibrationStatusChanged.emit()
+
+    def _commit_step1_extremes(self):
+        """Commit the tracked extreme positions from step 1 into _channel_min/max."""
+        print("[RadioCalibration] Step 1 complete - captured extreme positions")
+        for i in range(18):
+            # Only update if we actually saw movement (step1 tracking was seeded 2000/1000)
+            tracked_min = self._step1_min[i]
+            tracked_max = self._step1_max[i]
+            if tracked_min < tracked_max:  # real movement captured
+                self._channel_min[i] = tracked_min
+                self._channel_max[i] = tracked_max
+            else:
+                # No movement: keep fallback (current live value)
+                pass
+            rng = abs(self._channel_max[i] - self._channel_min[i])
+            if rng < 100:
+                print(f"[RadioCalibration WARNING] {self._channel_names[i]} small range: {rng}us")
+
+    @pyqtSlot()
+    def finishCalibration(self):
+        """
+        Called by the 'Click When Done' button.
+        Commits whatever extremes were captured in step 1, sets trim from current
+        stick positions, advances to step 3, and fires calibrationStatusChanged
+        so the QML summary dialog can be opened with real data.
+        Works regardless of whether nextCalibrationStep() was previously called.
+        """
+        if not self._calibration_active:
+            return
+
+        # Commit step 1 extremes if we are still in step 1
+        if self._calibration_step <= 1:
+            self._commit_step1_extremes()
+
+        # Set trim from current readings (throttle trim = its minimum)
+        for i in range(18):
+            if i == 2:  # Throttle
+                self._channel_trim[i] = self._channel_min[i]
+            else:
+                v = self._radio_channels[i]
+                if 900 < v < 2200:
+                    self._channel_trim[i] = v
+                else:
+                    self._channel_trim[i] = (self._channel_min[i] + self._channel_max[i]) // 2
+
+        self._calibration_step = 3
+        self._set_calibration_progress(100)
+        self._set_status_message("Calibration complete - Review values and save settings")
+        self._complete_calibration()
         self.calibrationStatusChanged.emit()
 
     @pyqtSlot()
@@ -391,20 +454,12 @@ class RadioCalibrationModel(QObject):
 
     def _update_radio_channels(self):
         """
-        Polling fallback: called by _update_timer every 20 ms.
-        The primary path is on_rc_channels_message() pushed by MAVLinkThread.
-        This only fires if the push path hasn't delivered data recently.
+        Previously a polling fallback (called by _update_timer every 20 ms).
+        Now a no-op: RC_CHANNELS are delivered with zero latency via
+        MAVLinkThread.register_msg_callback() → on_rc_channels_message().
+        Kept here so any residual timer connection doesn't crash.
         """
-        if not self._calibration_active or not self._drone_model.drone_connection:
-            return
-
-        try:
-            connection = self._drone_model.drone_connection
-            msg = connection.recv_match(type='RC_CHANNELS', blocking=False, timeout=0.01)
-            if msg:
-                self.on_rc_channels_message(msg)
-        except Exception as e:
-            print(f"[RadioCalibration ERROR] Failed to update radio channels: {e}")
+        pass
 
     def _save_rc_parameters(self):
         """Save RC calibration parameters to drone using MAVLink parameter protocol"""

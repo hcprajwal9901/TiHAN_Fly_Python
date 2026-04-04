@@ -96,8 +96,9 @@ class MissionPlannerCompassCalibration(QObject):
         # bar never goes backward below a confirmed value.
         self._smooth_timer = QTimer()
         self._smooth_timer.timeout.connect(self._smooth_tick)
-        self._smooth_timer.setInterval(900)       # 1% per 900 ms ≈ 90 s total
+        self._smooth_timer.setInterval(300)       # 1% per 300 ms ≈ 30 s total (matches Mission Planner speed)
         self._confirmed_floor = 0.0               # highest ArduPilot-confirmed %
+
         
         # Mission Planner orientation descriptions
         self._orientations = [
@@ -1167,22 +1168,26 @@ class MissionPlannerCompassCalibration(QObject):
             self._calibration_success = True
             self._completion_sound_played = True
 
-            # Push bars to exactly 100%
+            # Push bars to exactly 100% and stop all timers first
             with self._progress_lock:
                 self._mag1_progress = 100.0
                 self._mag2_progress = 100.0
-            QMetaObject.invokeMethod(self, "_emit_progress_signals", Qt.QueuedConnection)
 
-            # CRITICAL FIX: Force completion sound with multiple attempts
-            self._play_completion_sound_reliably()
-
-            # Update status
-            self._set_status("Calibration complete! Click Accept.")
-
-            # Stop all timers — smooth timer must also stop here
+            # Stop timers before emitting so the smooth tick doesn't race
             self._heartbeat_timer.stop()
             self._completion_timer.stop()
             self._smooth_timer.stop()
+
+            # Emit 100% to UI — QueuedConnection means it arrives on next event loop tick
+            QMetaObject.invokeMethod(self, "_emit_progress_signals", Qt.QueuedConnection)
+
+            # Update status immediately
+            self._set_status("Calibration complete! Click Accept.")
+
+            # Delay the beep by 450 ms so the bar's 200 ms width animation fully
+            # completes before the sound plays (beep should coincide with bar = 100%).
+            QTimer.singleShot(450, self._play_completion_sound_reliably)
+
 
     
     def _force_completion_check(self):

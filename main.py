@@ -1110,6 +1110,18 @@ def load_main_window(qml_base_path, app_mgr):
                 thread.register_msg_callback(compass_calibration_model.push_mavlink_msg)
                 print("[Main] ✅ Compass Calibration wired via register_msg_callback")
 
+            # Wire radio calibration — delivers RC_CHANNELS directly from MAVLinkThread
+            # with zero latency (no polling, no shared-socket competition).
+            if radio_calibration_model is not None:
+                def _rc_msg_dispatcher(msg):
+                    msg_type = msg.get_type()
+                    if msg_type == 'RC_CHANNELS':
+                        radio_calibration_model.on_rc_channels_message(msg)
+                    elif msg_type == 'RC_CHANNELS_RAW':
+                        radio_calibration_model.on_rc_channels_raw_message(msg)
+                thread.register_msg_callback(_rc_msg_dispatcher)
+                print("[Main] ✅ Radio Calibration wired via register_msg_callback (zero-latency RC)")
+
             # Log Downloader — needs LOG_ENTRY and LOG_DATA messages
             if log_downloader is not None:
                 thread.register_msg_callback(log_downloader._process_mavlink_message)
