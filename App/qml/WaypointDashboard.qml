@@ -626,14 +626,19 @@ Rectangle {
         }
     }
     
-    function updateWaypointAltitude(index, altitude) {
-        if (mapView) {
-            mapView.updateMarkerAltitude(index, altitude);
-            if (waypoints && waypoints[index]) {
-                waypoints[index].altitude = altitude;
-            }
-        }
+function updateWaypointAltitude(index, altitude) {
+    if (mapView) {
+        mapView.updateMarkerAltitude(index, altitude);
     }
+    
+    if (waypoints && waypoints[index]) {
+        // Force QML to detect the change by replacing the array reference
+        var tempWaypoints = waypoints.slice();
+        tempWaypoints[index] = Object.assign({}, tempWaypoints[index], { altitude: altitude });
+        waypoints = [];
+        waypoints = tempWaypoints;
+    }
+}
     
     function updateWaypointSpeed(index, speed) {
         if (mapView) {

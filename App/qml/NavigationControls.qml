@@ -3416,13 +3416,7 @@ Popup {
                                 font.family: "Consolas"
                                 color: theme.textSecondary
                             }
-                            
-                            Text {
-                                text: "🚀 " + model.speed.toFixed(1) + "m/s"
-                                font.pixelSize: 10
-                                font.family: "Consolas"
-                                color: theme.textSecondary
-                            }
+                          
                         }
                         
                         // Distance to next waypoint
