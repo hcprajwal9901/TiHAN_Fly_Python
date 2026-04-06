@@ -685,8 +685,8 @@ Rectangle {
                 Row {
                     anchors.fill: parent
                     anchors.margins: 6
-                    Text { text: "Cog"; color: "#ff0000"; font.family: "Consolas"; font.bold: true; font.pixelSize: 12 }
-                    Text { text: "  " + (gpsCog/100).toFixed(1) + "°"; color: "black"; font.family: "Consolas"; font.bold: true; font.pixelSize: 12 }
+                    Text { text: "Hdg"; color: "#ff0000"; font.family: "Consolas"; font.bold: true; font.pixelSize: 12 }
+                    Text { text: "  " + (typeof droneModel !== "undefined" && droneModel ? droneModel.droneHeading : 0.0).toFixed(1) + "°"; color: "black"; font.family: "Consolas"; font.bold: true; font.pixelSize: 12 }
                 }
             }
 

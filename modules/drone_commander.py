@@ -155,22 +155,22 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
         try:
             # Configure safety parameters
             self.commandFeedback.emit("⚙️ Configuring parameters...")
-            params = {
-                b'FS_THR_ENABLE':    0,   # Disable RC throttle failsafe
-                b'FS_GCS_ENABLE':    0,   # Disable GCS failsafe
-                b'ARMING_CHECK':     0,   # Skip pre-arm checks (SITL)
-                # ── Battery failsafe ─────────────────────────────────────────
-                # FS_BATT_ENABLE does NOT exist in ArduCopter.  The correct
-                # parameters are BATT_FS_LOW_ACT and BATT_FS_CRT_ACT:
-                #   0 = None (no action), 1 = Land, 2 = RTL, …
-                b'BATT_FS_LOW_ACT': 0,   # Battery low  → no action
-                b'BATT_FS_CRT_ACT': 0,   # Battery crit → no action
-                # ── SITL battery capacity ───────────────────────────────────
-                # SITL simulates battery drain; the default capacity is tiny
-                # and runs out on long missions.  100,000 mAh = effectively
-                # infinite for testing.
-                b'SIM_BATT_CAP_AH': 100000,  # 100 Ah — never runs out
-            }
+            # params = {
+            #     b'FS_THR_ENABLE':    0,   # Disable RC throttle failsafe
+            #     b'FS_GCS_ENABLE':    0,   # Disable GCS failsafe
+            #     b'ARMING_CHECK':     0,   # Skip pre-arm checks (SITL)
+            #     # ── Battery failsafe ─────────────────────────────────────────
+            #     # FS_BATT_ENABLE does NOT exist in ArduCopter.  The correct
+            #     # parameters are BATT_FS_LOW_ACT and BATT_FS_CRT_ACT:
+            #     #   0 = None (no action), 1 = Land, 2 = RTL, …
+            #     b'BATT_FS_LOW_ACT': 0,   # Battery low  → no action
+            #     b'BATT_FS_CRT_ACT': 0,   # Battery crit → no action
+            #     # ── SITL battery capacity ───────────────────────────────────
+            #     # SITL simulates battery drain; the default capacity is tiny
+            #     # and runs out on long missions.  100,000 mAh = effectively
+            #     # infinite for testing.
+            #     b'SIM_BATT_CAP_AH': 100000,  # 100 Ah — never runs out
+            # }
 
             # Only disable geofence if the user has NOT explicitly enabled it
             # from the GeoFence panel. Preserving user intent is critical.
@@ -410,6 +410,21 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
  
         # ── Parse QVariantList → plain dicts (runs on calling thread, fast) ──
         mission_waypoints = []
+        
+        # ArduPilot requires seq=0 to be the HOME location.
+        # We append a dummy HOME waypoint first so that actual commands start at seq=1.
+        mission_waypoints.append({
+            'seq': 0,
+            'frame': 0,
+            'command': 16,
+            'current': 0,
+            'autocontinue': 1,
+            'param1': 0, 'param2': 0, 'param3': 0, 'param4': 0,
+            'x': 0, 'y': 0, 'z': 0,
+            'mission_type': 0,
+            'str_cmd': 'HOME'
+        })
+
         command_map = {
             'TAKEOFF':         22,
             'WAYPOINT':        16,
@@ -454,6 +469,11 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                 continue
  
             cmd_upper   = command_str.upper()
+            
+            if cmd_upper == 'TAKEOFF':
+                lat = 0.0
+                lng = 0.0
+                
             mavlink_cmd = command_map.get(cmd_upper, 16)
  
             # ── DO_CHANGE_SPEED: speed goes in param2, not x/y/z ────────────
@@ -476,7 +496,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                 continue  # skip the lat/lon 0,0 guard below
             # ─────────────────────────────────────────────────────────────────
  
-            if lat == 0.0 and lng == 0.0:
+            if cmd_upper == 'WAYPOINT' and lat == 0.0 and lng == 0.0:
                 print(f"[DroneCommander] ⚠️ WP{i+1} has 0,0 coords – skipped")
                 continue
  
@@ -500,11 +520,11 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
         # Re-sequence all items so seq numbers are 0-based and contiguous
         for idx, item in enumerate(mission_waypoints):
             item['seq'] = idx
-            # First non-speed item should be 'current'
-            if idx == 0:
-                item['current'] = 0   # DO_CHANGE_SPEED is never 'current'
-            elif idx == 1 and mission_waypoints[0]['command'] == 178:
-                item['current'] = 1   # first real nav waypoint is current
+            item['current'] = 0
+            
+            # The executable mission starts at seq=1. Make it the current active command.
+            if idx == 1:
+                item['current'] = 1
  
         print(f"[DroneCommander] ✅ Parsed {len(mission_waypoints)} waypoints (incl. speed cmd)")
         self.commandFeedback.emit(f"📡 Uploading {len(mission_waypoints)} waypoints…")
@@ -693,6 +713,8 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                     try:
                         waypoints_for_qml = []
                         for dict_wp in self._upload_mission_queue:
+                            if dict_wp.get('str_cmd') == 'HOME':
+                                continue
                             waypoints_for_qml.append({
                                 'lat': dict_wp['x'], 'lng': dict_wp['y'], 'altitude': dict_wp['z'],
                                 'command': dict_wp.get('str_cmd', 'WAYPOINT')
@@ -1213,7 +1235,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
         action_map = {
             "NONE": 0,
             "RTL":  1,
-            "LAND": 4,
+            "LAND": 3,
             "HOLD": 0,
         }
 
@@ -1362,8 +1384,9 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                     0: "Disabled",
                     1: "RTL on RC loss",
                     2: "Continue AUTO on RC loss",
-                    3: "SmartRTL on RC loss",
-                    4: "Land on RC loss"
+                    3: "Land on RC loss",
+                    4: "SmartRTL on RC loss",
+                    5: "SmartRTL or Land on RC loss"
                 }
                 result = status_names.get(fs_thr, "Unknown")
                 print(f"[DroneCommander] RC FS: {result}")

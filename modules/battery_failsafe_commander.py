@@ -198,7 +198,7 @@ class BatteryFailSafeExtension:
         action_map = {
             "NONE": 0,    # Disabled
             "RTL": 1,     # Always RTL
-            "LAND": 4,    # Always Land
+            "LAND": 3,    # Always Land
             "HOLD": 0,    # Disabled (drone will hold last mode)
         }
         
@@ -374,8 +374,9 @@ class BatteryFailSafeExtension:
                     0: "Disabled",
                     1: "RTL on RC loss",
                     2: "Continue AUTO on RC loss",
-                    3: "SmartRTL on RC loss",
-                    4: "Land on RC loss"
+                    3: "Land on RC loss",
+                    4: "SmartRTL on RC loss",
+                    5: "SmartRTL or Land on RC loss"
                 }
                 
                 result = status_names.get(fs_thr, "Unknown")

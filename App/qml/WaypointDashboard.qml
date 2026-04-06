@@ -315,52 +315,7 @@ Rectangle {
                                     }
                                 }
                                 
-                                // Speed
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    
-                                    Text {
-                                        text: "Speed (m/s):"
-                                        font.pixelSize: 9
-                                        color: "#CCCCCC"
-                                        Layout.preferredWidth: 70
-                                    }
-                                    
-                                    SpinBox {
-                                        id: speedSpinBox
-                                        Layout.fillWidth: true
-                                        Layout.preferredHeight: 25
-                                        from: 1
-                                        to: 100
-                                        stepSize: 1
-                                        value: waypointData ? waypointData.speed || 5 : 5
-                                        
-                                        background: Rectangle {
-                                            color: "#2a2a2a"
-                                            border.color: "#4a4a4a"
-                                            border.width: 1
-                                            radius: 2
-                                        }
-                                        
-                                        contentItem: TextInput {
-                                            text: speedSpinBox.textFromValue(speedSpinBox.value, speedSpinBox.locale)
-                                            font.pixelSize: 9
-                                            color: "#FFFFFF"
-                                            horizontalAlignment: Qt.AlignHCenter
-                                            verticalAlignment: Qt.AlignVCenter
-                                            readOnly: !speedSpinBox.editable
-                                            validator: speedSpinBox.validator
-                                            inputMethodHints: Qt.ImhFormattedNumbersOnly
-                                        }
-                                        
-                                        onValueChanged: {
-                                            if (selectedWaypointIndex >= 0) {
-                                                updateWaypointSpeed(selectedWaypointIndex, value);
-                                            }
-                                        }
-                                    }
-                                }
-                                
+
                                 // Camera dropdown
                                 RowLayout {
                                     Layout.fillWidth: true
@@ -647,7 +602,6 @@ Rectangle {
     function updateEditorFields() {
         if (waypointData) {
             altitudeSpinBox.value = waypointData.altitude || 10;
-            speedSpinBox.value = waypointData.speed || 5;
             
             var commandType = waypointData.commandType || "waypoint";
             for (var i = 0; i < commandCombo.model.length; i++) {
