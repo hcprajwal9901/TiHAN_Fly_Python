@@ -12,6 +12,8 @@ Row {
     property var parametersWindowInstance: null
     property var navigationControlsWindowInstance: null
     property var pidTuningWindowInstance: null
+    property var flightModeWindowInstance: null 
+    
     clip: false
 
     Button {
@@ -239,7 +241,58 @@ Row {
                     }
                 }
             }
+MenuItem {
+    id: flightModeMenuItem
+    property bool isClicked: false
+    text: languageManager ? languageManager.getText("Flight Mode") : "Flight Mode"
+    width: settingsButton.width
+    height: 35
+    ToolTip.visible: false
 
+    background: Rectangle {
+        color: parent.hovered ? "#4CAF50" : "transparent"
+        radius: 4
+    }
+
+    contentItem: Text {
+        text: flightModeMenuItem.text
+        color: "#ffffff"
+        font.family: "Consolas"
+        font.pixelSize: 16
+        font.bold: flightModeMenuItem.isClicked || parent.hovered
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+        renderType: Text.NativeRendering
+    }
+
+    onTriggered: {
+        console.log("✈️ Flight Mode menu item triggered")
+
+        if (mainWindowRef && !mainWindowRef.flightModeWindowInstance) {
+            var c = Qt.createComponent("FlightMode.qml")
+            if (c.status === Component.Ready) {
+                var w = c.createObject(mainWindowRef, {
+                    "droneCommander": droneCommander,
+                    "droneModel":     droneModel
+                })
+                if (w) {
+                    w.showFullScreen()
+                    mainWindowRef.flightModeWindowInstance = w
+                    console.log("✅ Flight Mode window opened (fullscreen)")
+                } else {
+                    console.log("❌ Failed to create Flight Mode window")
+                }
+            } else if (c.status === Component.Error) {
+                console.log("❌ Error loading FlightMode.qml:", c.errorString())
+            }
+        } else if (mainWindowRef && mainWindowRef.flightModeWindowInstance) {
+            mainWindowRef.flightModeWindowInstance.showFullScreen()
+            mainWindowRef.flightModeWindowInstance.raise()
+        } else {
+            console.log("❌ mainWindowRef not set")
+        }
+    }
+}
             // ── PID Tuning ─────────────────────────────────────────
             MenuItem {
                 id: pidTuningMenuItem
