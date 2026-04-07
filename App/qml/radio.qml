@@ -176,6 +176,28 @@ ApplicationWindow {
                     id: hb
                     property int    chIdx: 0
                     property string lbl:   ""
+                    
+                    property int currentPwm: leftPanel.pwm(hb.chIdx)
+                    property int minRecorded: 1500
+                    property int maxRecorded: 1500
+                    
+                    onCurrentPwmChanged: {
+                        if (window.calibrationActive && currentPwm >= 900 && currentPwm <= 2200) {
+                            if (currentPwm < minRecorded) minRecorded = currentPwm;
+                            if (currentPwm > maxRecorded) maxRecorded = currentPwm;
+                        }
+                    }
+                    
+                    Connections {
+                        target: window
+                        function onCalibrationActiveChanged() {
+                            if (window.calibrationActive) {
+                                hb.minRecorded = hb.currentPwm >= 900 && hb.currentPwm <= 2200 ? hb.currentPwm : 1500;
+                                hb.maxRecorded = hb.currentPwm >= 900 && hb.currentPwm <= 2200 ? hb.currentPwm : 1500;
+                            }
+                        }
+                    }
+
                     width:  leftPanel.width
                     height: leftPanel.hBarH + 32   // label row + bar + value
 
@@ -197,6 +219,7 @@ ApplicationWindow {
                         width:  parent.width - leftPanel.hBarLblW - 8
                         height: leftPanel.hBarH
                         color: "#e4e4e4"; border.color: "#bbbbbb"; border.width: 1; radius: 3
+                        clip: true
 
                         // centre tick
                         Rectangle {
@@ -211,10 +234,24 @@ ApplicationWindow {
                             color: "#4CAF50"; radius: 2
                             Behavior on width { NumberAnimation { duration: 10 } }
                         }
+                        // min marker
+                        Rectangle {
+                            x: Math.max(0, Math.min((hb.minRecorded - 1000) / 1000, 1.0)) * parent.width - 1
+                            y: 0; width: 2; height: parent.height
+                            color: "red"
+                            visible: window.calibrationActive
+                        }
+                        // max marker
+                        Rectangle {
+                            x: Math.max(0, Math.min((hb.maxRecorded - 1000) / 1000, 1.0)) * parent.width - 1
+                            y: 0; width: 2; height: parent.height
+                            color: "red"
+                            visible: window.calibrationActive
+                        }
                         // value text inside bar
                         Text {
                             anchors.centerIn: parent
-                            text: Math.round(leftPanel.pwm(hb.chIdx))
+                            text: Math.round(hb.currentPwm)
                             color: "#222222"; font.pixelSize: 10; font.bold: true
                         }
                     }
@@ -231,6 +268,27 @@ ApplicationWindow {
                     property int    chIdx:      0
                     property string lbl:        ""
                     property bool   showCentre: true
+                    
+                    property int currentPwm: leftPanel.pwm(vb.chIdx)
+                    property int minRecorded: 1500
+                    property int maxRecorded: 1500
+
+                    onCurrentPwmChanged: {
+                        if (window.calibrationActive && currentPwm >= 900 && currentPwm <= 2200) {
+                            if (currentPwm < minRecorded) minRecorded = currentPwm;
+                            if (currentPwm > maxRecorded) maxRecorded = currentPwm;
+                        }
+                    }
+
+                    Connections {
+                        target: window
+                        function onCalibrationActiveChanged() {
+                            if (window.calibrationActive) {
+                                vb.minRecorded = vb.currentPwm >= 900 && vb.currentPwm <= 2200 ? vb.currentPwm : 1500;
+                                vb.maxRecorded = vb.currentPwm >= 900 && vb.currentPwm <= 2200 ? vb.currentPwm : 1500;
+                            }
+                        }
+                    }
 
                     readonly property int lblH: 22   // label zone height
                     readonly property int valH: 16   // value zone height
@@ -255,6 +313,7 @@ ApplicationWindow {
                         width:  leftPanel.vBarW
                         height: leftPanel.vBarH
                         color: "#e4e4e4"; border.color: "#bbbbbb"; border.width: 1; radius: 3
+                        clip: true
 
                         // centre tick (pitch only)
                         Rectangle {
@@ -272,6 +331,22 @@ ApplicationWindow {
                             color: "#4CAF50"; radius: 2
                             Behavior on height { NumberAnimation { duration: 10 } }
                         }
+                        // min marker
+                        Rectangle {
+                            x: 0
+                            y: parent.height - (Math.max(0, Math.min((vb.minRecorded - 1000) / 1000, 1.0)) * parent.height) - 1
+                            width: parent.width; height: 2
+                            color: "red"
+                            visible: window.calibrationActive
+                        }
+                        // max marker
+                        Rectangle {
+                            x: 0
+                            y: parent.height - (Math.max(0, Math.min((vb.maxRecorded - 1000) / 1000, 1.0)) * parent.height) - 1
+                            width: parent.width; height: 2
+                            color: "red"
+                            visible: window.calibrationActive
+                        }
                     }
 
                     // Value text — anchored only to parent bottom
@@ -279,7 +354,7 @@ ApplicationWindow {
                         x: 0
                         y: parent.height - vb.valH
                         width: parent.width; height: vb.valH
-                        text: Math.round(leftPanel.pwm(vb.chIdx))
+                        text: Math.round(vb.currentPwm)
                         color: "#444444"; font.pixelSize: 10; font.bold: true
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment:   Text.AlignVCenter
@@ -343,12 +418,33 @@ ApplicationWindow {
                             model: 8
 
                             Row {
+                                id: rowDeleg
                                 spacing: 10
                                 // chI = 0-indexed position in window.ch
                                 readonly property int  chI:    index + 4
                                 readonly property int  pwmVal: (window.ch && window.ch.length > chI) ? window.ch[chI] : 0
                                 // "active" = valid PWM range received from hardware
                                 readonly property bool active: pwmVal > 900 && pwmVal < 2200
+                                
+                                property int minRecorded: 1500
+                                property int maxRecorded: 1500
+
+                                onPwmValChanged: {
+                                    if (window.calibrationActive && active) {
+                                        if (pwmVal < minRecorded) minRecorded = pwmVal;
+                                        if (pwmVal > maxRecorded) maxRecorded = pwmVal;
+                                    }
+                                }
+
+                                Connections {
+                                    target: window
+                                    function onCalibrationActiveChanged() {
+                                        if (window.calibrationActive) {
+                                            rowDeleg.minRecorded = rowDeleg.active ? rowDeleg.pwmVal : 1500;
+                                            rowDeleg.maxRecorded = rowDeleg.active ? rowDeleg.pwmVal : 1500;
+                                        }
+                                    }
+                                }
 
                                 Text {
                                     text: "Radio " + (index + 5)
@@ -359,11 +455,26 @@ ApplicationWindow {
                                     width: 200; height: 20
                                     color: active ? "#c8f0c8" : "#e0e0e0"
                                     border.color: "#cccccc"; border.width: 1
+                                    clip: true
                                     Rectangle {
                                         anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
                                         width: active ? Math.max(0, Math.min((pwmVal - 1000) / 1000, 1.0)) * parent.width : 0
                                         color: "#4CAF50"
                                         Behavior on width { NumberAnimation { duration: 60 } }
+                                    }
+                                    // min marker
+                                    Rectangle {
+                                        x: Math.max(0, Math.min((rowDeleg.minRecorded - 1000) / 1000, 1.0)) * parent.width - 1
+                                        y: 0; width: 2; height: parent.height
+                                        color: "red"
+                                        visible: window.calibrationActive && rowDeleg.active
+                                    }
+                                    // max marker
+                                    Rectangle {
+                                        x: Math.max(0, Math.min((rowDeleg.maxRecorded - 1000) / 1000, 1.0)) * parent.width - 1
+                                        y: 0; width: 2; height: parent.height
+                                        color: "red"
+                                        visible: window.calibrationActive && rowDeleg.active
                                     }
                                     Text {
                                         anchors.centerIn: parent

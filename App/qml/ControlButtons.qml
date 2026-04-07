@@ -12,8 +12,12 @@ Row {
     property var parametersWindowInstance: null
     property var navigationControlsWindowInstance: null
     property var pidTuningWindowInstance: null
+<<<<<<< HEAD
     property var flightModeWindowInstance: null 
     
+=======
+    property var userParamsWindowInstance: null
+>>>>>>> 1785943f20e719bed4124e527a784bd8125f837d
     clip: false
 
     Button {
@@ -134,7 +138,7 @@ Row {
         id: settingsButton
         property bool isClicked: false
         text: languageManager ? languageManager.getText("SETTINGS") + " ▼" : "SETTINGS ▼"
-        width: 120
+        width: 150
         height: 30
         flat: true
         
@@ -491,6 +495,83 @@ MenuItem {
                         mainWindowRef.parametersWindowInstance.raise()
                     } else {
                         console.log("❌ mainWindowRef not set")
+                    }
+                }
+            }
+
+            // ── User Params ────────────────────────────────────────
+            MenuItem {
+                id: userParamsMenuItem
+                property bool isClicked: false
+                property var windowInstance: null
+                text: languageManager ? languageManager.getText("User Params") : "User Params"
+                width: settingsButton.width
+                height: 35
+                ToolTip.visible: false
+
+                background: Rectangle {
+                    color: parent.hovered ? "#4CAF50" : "transparent"
+                    radius: 4
+                }
+
+                contentItem: Text {
+                    text: userParamsMenuItem.text
+                    color: "#ffffff"
+                    font.family: "Consolas"
+                    font.pixelSize: 16
+                    font.bold: userParamsMenuItem.isClicked || parent.hovered
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    renderType: Text.NativeRendering
+                }
+
+                onTriggered: {
+                    console.log("📋 User Params menu item triggered")
+                    
+                    if (typeof droneModel === 'undefined' || !droneModel.isConnected) {
+                        console.log("❌ Drone not connected - cannot open User Params")
+                        var errorDialog = Qt.createQmlObject('\
+                            import QtQuick 2.15\n\
+                            import QtQuick.Controls 2.15\n\
+                            Dialog {\n\
+                                title: "Connection Required"\n\
+                                modal: true\n\
+                                x: (parent.width - width) / 2\n\
+                                y: (parent.height - height) / 2\n\
+                                standardButtons: Dialog.Ok\n\
+                                Label {\n\
+                                    text: "Please connect to the drone before opening User Params window."\n\
+                                    wrapMode: Text.WordWrap\n\
+                                }\n\
+                                onAccepted: destroy()\n\
+                            }\n\
+                        ', mainWindowRef)
+                        errorDialog.open()
+                        return
+                    }
+                    
+                    var actualDroneCommander = droneModel.droneCommander
+                    if (actualDroneCommander === null || typeof actualDroneCommander === 'undefined') {
+                        console.log("❌ droneModel.droneCommander is null")
+                        return
+                    }
+                    
+                    if (!userParamsMenuItem.windowInstance) {
+                        console.log("📋 Creating new User Params window...")
+                        var c = Qt.createComponent("UserParams.qml")
+                        if (c.status === Component.Ready) {
+                            var w = c.createObject(mainWindowRef, {
+                                "droneCommander": actualDroneCommander,
+                                "droneModel": droneModel
+                            })
+                            if (w) {
+                                w.show()
+                                userParamsMenuItem.windowInstance = w
+                            }
+                        }
+                    } else if (userParamsMenuItem.windowInstance) {
+                        userParamsMenuItem.windowInstance.visible = true
+                        userParamsMenuItem.windowInstance.raise()
                     }
                 }
             }
