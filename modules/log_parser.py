@@ -14,7 +14,7 @@ Key improvements over the original:
 import time
 from pathlib import Path
 from pymavlink import mavutil
-from PyQt5.QtCore import QObject, pyqtSignal
+
 
 
 # How often (in messages of a given type) to record a byte offset.
@@ -53,15 +53,10 @@ class ParsedLog:
         self.field_cache: dict[str, list[str]] = {}
 
 
-class LogParser(QObject):
+class LogParser:
     """Parse .tlog / .bin files with fast O(1) init and seek-index building."""
 
-    parseProgress = pyqtSignal(int)    # 0-100
-    parseComplete = pyqtSignal(object) # ParsedLog
-    parseError    = pyqtSignal(str)
-
     def __init__(self):
-        super().__init__()
         self._parsing         = False
         self.force_downsampling = False
 
@@ -79,7 +74,7 @@ class LogParser(QObject):
         """
         filepath = Path(filepath)
         if not filepath.exists():
-            self.parseError.emit(f"File not found: {filepath}")
+            print(f"[LogParser] Error: File not found: {filepath}")
             return None
 
         self._parsing   = True
@@ -196,13 +191,12 @@ class LogParser(QObject):
                   f"{len(parsed_log.message_types_list)} types, "
                   f"{sum(len(v) for v in parsed_log.message_index.values())} index entries")
 
-            self.parseComplete.emit(parsed_log)
             return parsed_log
 
         except Exception as e:
             import traceback
             traceback.print_exc()
-            self.parseError.emit(f"Parse error: {e}")
+            print(f"[LogParser] Parse error: {e}")
             return None
 
         finally:

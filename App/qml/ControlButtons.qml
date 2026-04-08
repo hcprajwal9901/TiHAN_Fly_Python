@@ -230,6 +230,8 @@ Row {
                             }
                         } else {
                             if (mainWindowRef.navigationControlsWindowInstance) {
+                                mainWindowRef.navigationControlsWindowInstance.droneCommander = droneCommander
+                                mainWindowRef.navigationControlsWindowInstance.droneModel = droneModel
                                 mainWindowRef.navigationControlsWindowInstance.show()
                                 mainWindowRef.navigationControlsWindowInstance.raise()
                             } else {
@@ -276,9 +278,9 @@ MenuItem {
                     "droneModel":     droneModel
                 })
                 if (w) {
-                    w.showFullScreen()
+                    w.show()
                     mainWindowRef.flightModeWindowInstance = w
-                    console.log("✅ Flight Mode window opened (fullscreen)")
+                    console.log("✅ Flight Mode window opened")
                 } else {
                     console.log("❌ Failed to create Flight Mode window")
                 }
@@ -286,7 +288,9 @@ MenuItem {
                 console.log("❌ Error loading FlightMode.qml:", c.errorString())
             }
         } else if (mainWindowRef && mainWindowRef.flightModeWindowInstance) {
-            mainWindowRef.flightModeWindowInstance.showFullScreen()
+            mainWindowRef.flightModeWindowInstance.droneCommander = droneCommander
+            mainWindowRef.flightModeWindowInstance.droneModel = droneModel
+            mainWindowRef.flightModeWindowInstance.show()
             mainWindowRef.flightModeWindowInstance.raise()
         } else {
             console.log("❌ mainWindowRef not set")
@@ -363,6 +367,8 @@ MenuItem {
                             }
                         }
                     } else if (mainWindowRef && mainWindowRef.pidTuningWindowInstance) {
+                        mainWindowRef.pidTuningWindowInstance.droneCommander = actualDroneCommander
+                        mainWindowRef.pidTuningWindowInstance.droneModel = droneModel
                         mainWindowRef.pidTuningWindowInstance.visible = true
                     }
                 }
@@ -487,6 +493,8 @@ MenuItem {
                         }
                     } else if (mainWindowRef && mainWindowRef.parametersWindowInstance) {
                         console.log("📋 Parameters window already exists - showing it")
+                        mainWindowRef.parametersWindowInstance.droneCommander = actualDroneCommander
+                        mainWindowRef.parametersWindowInstance.droneModel = droneModel
                         mainWindowRef.parametersWindowInstance.visible = true
                         mainWindowRef.parametersWindowInstance.raise()
                     } else {
@@ -566,6 +574,8 @@ MenuItem {
                             }
                         }
                     } else if (userParamsMenuItem.windowInstance) {
+                        userParamsMenuItem.windowInstance.droneCommander = actualDroneCommander
+                        userParamsMenuItem.windowInstance.droneModel = droneModel
                         userParamsMenuItem.windowInstance.visible = true
                         userParamsMenuItem.windowInstance.raise()
                     }

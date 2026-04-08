@@ -202,7 +202,12 @@ class LogDownloader(QObject):
     
     def _process_mavlink_message(self, msg):
         """Called by MAVLinkThread (background). Bounces to GUI thread."""
-        self._mavlinkMsgSignal.emit(msg)
+        try:
+            msg_type = msg.get_type()
+            if msg_type in ('LOG_ENTRY', 'LOG_DATA', 'LOG_REQUEST_END', 'LOG_ERASE'):
+                self._mavlinkMsgSignal.emit(msg)
+        except AttributeError:
+            pass
         
     def _process_mavlink_message_gui(self, msg):
         """Process incoming MAVLink messages for log-related data safely on GUI thread"""

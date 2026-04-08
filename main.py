@@ -22,6 +22,32 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
+# ── Global PySerial port scan lock setup ──────────────────────────────────────
+# Windows SetupAPI (used by list_ports.comports()) is NOT thread-safe.
+# If multiple threads call it concurrently, it crashes PySerial handles with
+# access violations or RPC_E_DISCONNECTED (0x80010108) COM framework errors.
+import serial.tools.list_ports
+from modules.port_scan_lock import PORT_SCAN_LOCK
+
+_original_comports = serial.tools.list_ports.comports
+
+def _safe_comports(*args, **kwargs):
+    import modules.port_scan_lock as psl
+    # When drone is connected, never touch Windows Device Manager —
+    # SetupDiGetClassDevs can momentarily destabilise the active USB serial
+    # handle, causing serialwin32.in_waiting to crash with RPC_E_DISCONNECTED.
+    if psl.DISABLE_PORT_SCANNING:
+        return []
+    
+    with PORT_SCAN_LOCK:
+        try:
+            return list(_original_comports(*args, **kwargs))
+        except Exception:
+            return []
+
+
+serial.tools.list_ports.comports = _safe_comports
+
 
 from pathlib import Path
 
@@ -1005,16 +1031,30 @@ def load_main_window(qml_base_path, app_mgr):
 
         # Drone connection handlers
         def on_drone_disconnected():
+            import modules.port_scan_lock as psl
+            psl.DISABLE_PORT_SCANNING = False
+            print("🔓 Port scanning RE-ENABLED (drone disconnected)")
             message_logger.logMessage("⚠️ Drone disconnected - stopping operations", "warning")
             if directional_pad_controller:
                 directional_pad_controller.stopMovement()
             app_mgr._stop_all_calibrations()
             # Resume COM-port scanning now that the drone is gone
             port_manager.clearActivePort()
+            # Resume FirmwareFlasher port scanner
+            if firmware_flasher:
+                firmware_flasher.resumePortScanner()
 
         def on_drone_connected():
             if drone_model.isConnected:
+                import modules.port_scan_lock as psl
+                psl.DISABLE_PORT_SCANNING = True
+                print("🔒 Port scanning DISABLED (drone connected — protecting MAVLink serial)")
                 message_logger.logMessage("✅ Drone connected successfully", "success")
+
+                # Pause FirmwareFlasher PortScanner — hard stop via threading.Event
+                # so the thread cannot wake up and call comports() while MAVLink is active.
+                if firmware_flasher:
+                    firmware_flasher.pausePortScanner()
 
                 # ✅ Stop the port scanner from probing COM ports while the flight
                 # controller is active — avoids competing with the MAVLink socket.

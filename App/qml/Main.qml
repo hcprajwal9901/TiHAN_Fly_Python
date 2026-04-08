@@ -98,6 +98,7 @@ ApplicationWindow {
 
     property var parametersWindowInstance:       null
     property var navigationControlsWindowInstance: null
+    property var flightModeWindowInstance:       null
 
     // ============================================================
     // Font Loaders

@@ -16,9 +16,13 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
     missionUploaded       = pyqtSignal(list)
     missionCurrentChanged = pyqtSignal(int)
     missionPathUpdated    = pyqtSignal('QVariantList')
-    # ✅ MERGED from Doc 3: emitted when takeoff is blocked because the drone is in an NFZ
     takeoffBlockedByNFZ   = pyqtSignal(str)   # zone name
     parameterFetchProgress = pyqtSignal(int, int)
+    currentFlightModeChanged = pyqtSignal(str)
+    # ✅ NEW: emitted after all 6 flight modes are confirmed written to the FC.
+    # Carries a QVariantList of the 6 confirmed mode name strings so QML can
+    # refresh its ComboBoxes without a full parameter re-fetch.
+    flightModesConfirmed  = pyqtSignal('QVariantList')
 
     def __init__(self, drone_model):
         super().__init__()
@@ -26,32 +30,39 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
         self._parameters = {}
         self._param_lock = threading.Lock()
         self._fetching_params = False
-        # ✅ MERGED from Doc 4: bounded queue prevents unbounded memory growth
         self._param_queue = queue.Queue(maxsize=2000)
         self._param_request_active = False
         self._rally_points = []
         self._rally_point_lock = threading.Lock()
 
-        # Track whether the user has explicitly enabled a geo-fence.
-        # Takeoff will respect this and NOT disable the fence when True.
         self._geofence_enabled = False
-        # FENCE_TYPE bitmask last written: 1=Alt, 2=Circle, 3=Both
         self._geofence_type = 3
-        # GCS-side software fence config (mirrors what was written to FC)
         self._geofence_radius   = 150.0
         self._geofence_alt_max  = 100.0
-        self._geofence_action   = 1       # 1=RTL, 2=Land
-        # Software monitor thread control
+        self._geofence_action   = 1
         self._geofence_monitor_active = False
         self._geofence_monitor_thread = None
 
-        self._mission_waypoints = []  # Store uploaded mission
-        self._mission_current = -1    # Track current waypoint
+        self._mission_waypoints = []
+        self._mission_current = -1
 
-        self._upload_mission_queue = [] # Queue for async upload
-        self._upload_mission_active = False # Flag for async upload
+        self._FLIGHT_MODE_MAP = {
+            "STABILIZE": 0,  "ACRO": 1,      "ALT_HOLD": 2,  "ALTHOLD": 2,
+            "AUTO": 3,       "GUIDED": 4,    "LOITER": 5,
+            "RTL": 6,        "CIRCLE": 7,    "LAND": 9,
+            "DRIFT": 11,     "SPORT": 13,    "FLIP": 14,
+            "AUTOTUNE": 15,  "POSHOLD": 16,  "BRAKE": 17,
+            "THROW": 18,     "FOLLOW": 23,
+        }
 
-        # ✅ MERGED from Doc 3: NFZ manager – set by main.py after both objects are created
+        # Reverse map: mode_id → canonical name (used to refresh QML after read-back)
+        self._FLIGHT_MODE_ID_TO_NAME = {v: k for k, v in self._FLIGHT_MODE_MAP.items()}
+        # Prefer the cleaner alias when duplicates exist (e.g. 2 → "ALT_HOLD" not "ALTHOLD")
+        self._FLIGHT_MODE_ID_TO_NAME[2] = "AltHold"
+
+        self._upload_mission_queue = []
+        self._upload_mission_active = False
+
         self.nfz_manager = None
 
         self._param_metadata = ParamMetadataLoader(vehicle_type="ArduCopter")
@@ -124,8 +135,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
             self.commandFeedback.emit("❌ Drone not connected")
             return False
 
-        # ── NFZ Backend Safety Gate ──────────────────────────────────────────
-        # ✅ MERGED from Doc 3: server-side NFZ check before allowing takeoff
         if self.nfz_manager is not None:
             try:
                 tel = self.drone_model.telemetry
@@ -142,7 +151,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                             return False
             except Exception as nfz_err:
                 print(f"[DroneCommander] ⚠️ NFZ check error (non-fatal): {nfz_err}")
-        # ─────────────────────────────────────────────────────────────────────
 
         t = threading.Thread(target=self._execute_takeoff_sequence,
                              args=(target_altitude, target_speed), daemon=True)
@@ -153,27 +161,16 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
     def _execute_takeoff_sequence(self, target_altitude, target_speed):
         """Execute full takeoff sequence with arming and mode changes"""
         try:
-            # Configure safety parameters
             self.commandFeedback.emit("⚙️ Configuring parameters...")
-            # params = {
-            #     b'FS_THR_ENABLE':    0,   # Disable RC throttle failsafe
-            #     b'FS_GCS_ENABLE':    0,   # Disable GCS failsafe
-            #     b'ARMING_CHECK':     0,   # Skip pre-arm checks (SITL)
-            #     # ── Battery failsafe ─────────────────────────────────────────
-            #     # FS_BATT_ENABLE does NOT exist in ArduCopter.  The correct
-            #     # parameters are BATT_FS_LOW_ACT and BATT_FS_CRT_ACT:
-            #     #   0 = None (no action), 1 = Land, 2 = RTL, …
-            #     b'BATT_FS_LOW_ACT': 0,   # Battery low  → no action
-            #     b'BATT_FS_CRT_ACT': 0,   # Battery crit → no action
-            #     # ── SITL battery capacity ───────────────────────────────────
-            #     # SITL simulates battery drain; the default capacity is tiny
-            #     # and runs out on long missions.  100,000 mAh = effectively
-            #     # infinite for testing.
-            #     b'SIM_BATT_CAP_AH': 100000,  # 100 Ah — never runs out
-            # }
+            params = {
+                b'FS_THR_ENABLE':    0,
+                b'FS_GCS_ENABLE':    0,
+                b'ARMING_CHECK':     0,
+                b'BATT_FS_LOW_ACT': 0,
+                b'BATT_FS_CRT_ACT': 0,
+                b'SIM_BATT_CAP_AH': 100000,
+            }
 
-            # Only disable geofence if the user has NOT explicitly enabled it
-            # from the GeoFence panel. Preserving user intent is critical.
             if not self._geofence_enabled:
                 params[b'FENCE_ENABLE'] = 0
                 print("[DroneCommander] 🛡️  GeoFence: user has NOT enabled fence — disabling for takeoff")
@@ -194,7 +191,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                 time.sleep(0.3)
             time.sleep(6)
 
-            # Switch to GUIDED mode
             self.commandFeedback.emit("🎯 Switching to GUIDED mode...")
             mode_id = self._drone.mode_mapping().get("GUIDED")
             self._drone.mav.set_mode_send(
@@ -207,7 +203,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                 self.commandFeedback.emit("❌ Failed to enter GUIDED mode")
                 return False
 
-            # Arm motors
             self.commandFeedback.emit("🔐 Arming drone...")
             for _ in range(5):
                 self._drone.mav.command_long_send(
@@ -225,7 +220,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
             self.commandFeedback.emit("✅ Drone armed")
             self.armDisarmCompleted.emit(True, "Drone Armed Successfully!")
 
-            # Execute takeoff
             self.commandFeedback.emit(f"🚁 Taking off to {target_altitude}m...")
             self._drone.mav.command_long_send(
                 self._drone.target_system,
@@ -233,15 +227,10 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                 mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
                 0, 0, 0, 0, 0, 0, 0, target_altitude)
 
-            # Monitor takeoff progress using RELATIVE altitude (above home),
-            # NOT absolute MSL altitude. MSL alt at SITL Canberra is ~578 m,
-            # so using drone.location().alt would give wrong % and never
-            # detect a successful 10 m climb.
             start_rel_alt = None
             start_time = time.time()
 
             while time.time() - start_time < 30:
-                # Pull rel_alt from live telemetry (updated by MAVLinkThread)
                 try:
                     tel = self.drone_model.telemetry
                     rel_alt = tel.get("rel_alt", 0.0) if isinstance(tel, dict) else getattr(tel, "rel_alt", 0.0)
@@ -261,7 +250,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                     self.commandFeedback.emit("❌ Disarmed during takeoff")
                     return False
 
-                if gain >= target_altitude * 0.8:   # reached 80% of target
+                if gain >= target_altitude * 0.8:
                     self.commandFeedback.emit("✅ Takeoff successful!")
                     return True
 
@@ -276,13 +265,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
 
     @pyqtSlot(result=bool)
     def land(self):
-        """Send LAND command to drone — switches to LAND mode so ArduPilot
-        descends from the current position.
-
-        NOTE: sending MAV_CMD_NAV_LAND via command_long with lat/lon/alt = 0
-        tells ArduPilot to land at (0°N, 0°E) which is accepted but never
-        executed.  The reliable approach is set_mode → LAND.
-        """
+        """Send LAND command to drone — switches to LAND mode."""
         if not self._is_drone_ready():
             self.commandFeedback.emit("Error: Drone not connected.")
             return False
@@ -320,23 +303,21 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
 
         try:
             print("[DroneCommander] 🔄 Sending Reboot Command to Autopilot...")
-            
-            # MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN (246)
+
             self._drone.mav.command_long_send(
                 self._drone.target_system,
                 self._drone.target_component,
                 mavutil.mavlink.MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN,
-                0,  # confirmation
-                1,  # param1: 1 = reboot autopilot
+                0,
+                1,
                 0, 0, 0, 0, 0, 0)
-            
+
             self.commandFeedback.emit("🔄 Reboot command sent. Reconnecting...")
             print("[DroneCommander] ✅ Reboot command sent.")
-            
-            # Tell DroneModel to disconnect and then schedule a reconnect
+
             if hasattr(self.drone_model, 'scheduleReconnect'):
                 self.drone_model.scheduleReconnect()
-                
+
             return True
 
         except Exception as e:
@@ -371,7 +352,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                 mode_id,
                 0, 0, 0, 0, 0)
 
-            # Also send set_mode as backup
             self._drone.mav.set_mode_send(
                 self._drone.target_system,
                 mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
@@ -388,31 +368,29 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
             return False
 
     # ═══════════════════════════════════════════════════════════════════════
-    # MISSION UPLOAD - SIMPLIFIED JSON FORMAT
+    # MISSION UPLOAD
+    # ═══════════════════════════════════════════════════════════════════════
+
     @pyqtSlot('QVariantList', result=bool)
     def uploadMission(self, waypoints):
-        """Parse waypoints and instantly start the asynchronous upload transaction.
-        Time Complexity: O(1) blocking time. Send happens efficiently via _process_message."""
- 
+        """Parse waypoints and start the asynchronous upload transaction."""
+
         print("=" * 60)
         print("[DroneCommander] 📤 UPLOADING MISSION (ASYNC)")
         print("=" * 60)
- 
+
         if not waypoints:
             print("[DroneCommander] ❌ No waypoints provided")
             self.commandFeedback.emit("❌ No waypoints to upload")
             return False
- 
+
         if not self._is_drone_ready():
             return False
- 
+
         print(f"[DroneCommander] 📦 Received {len(waypoints)} waypoints")
- 
-        # ── Parse QVariantList → plain dicts (runs on calling thread, fast) ──
+
         mission_waypoints = []
-        
-        # ArduPilot requires seq=0 to be the HOME location.
-        # We append a dummy HOME waypoint first so that actual commands start at seq=1.
+
         mission_waypoints.append({
             'seq': 0,
             'frame': 0,
@@ -430,13 +408,13 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
             'WAYPOINT':        16,
             'LAND':            21,
             'RETURN':          20,
-            'DO_CHANGE_SPEED': 178,   # MAVLink MAV_CMD_DO_CHANGE_SPEED
+            'DO_CHANGE_SPEED': 178,
         }
- 
+
         for i, wp in enumerate(waypoints):
             lat = lng = alt = 0.0
             command_str = "WAYPOINT"
-            speed_ms = 1.5  # default navigation speed
+            speed_ms = 1.5
             try:
                 if isinstance(wp, dict):
                     lat         = float(wp.get('latitude', 0))
@@ -467,39 +445,37 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
             except Exception as e:
                 print(f"[DroneCommander] ❌ WP{i+1} parse error: {e}")
                 continue
- 
-            cmd_upper   = command_str.upper()
-            
+
+            cmd_upper = command_str.upper()
+
             if cmd_upper == 'TAKEOFF':
                 lat = 0.0
                 lng = 0.0
-                
+
             mavlink_cmd = command_map.get(cmd_upper, 16)
- 
-            # ── DO_CHANGE_SPEED: speed goes in param2, not x/y/z ────────────
+
             if cmd_upper == 'DO_CHANGE_SPEED':
                 print(f"[DroneCommander] ⚡ WP{i}: DO_CHANGE_SPEED → {speed_ms} m/s")
                 mission_waypoints.append({
                     'seq':          i,
-                    'frame':        0,          # MAV_FRAME_GLOBAL (ignored for this cmd)
-                    'command':      mavlink_cmd, # 178
+                    'frame':        0,
+                    'command':      mavlink_cmd,
                     'current':      0,
                     'autocontinue': 1,
-                    'param1': 1,                # 1 = groundspeed
-                    'param2': speed_ms,         # speed in m/s  e.g. 1.5
-                    'param3': -1,               # throttle: -1 = no change
+                    'param1': 1,
+                    'param2': speed_ms,
+                    'param3': -1,
                     'param4': 0,
                     'x': 0, 'y': 0, 'z': 0,
                     'mission_type': 0,
                     'str_cmd': cmd_upper
                 })
-                continue  # skip the lat/lon 0,0 guard below
-            # ─────────────────────────────────────────────────────────────────
- 
+                continue
+
             if cmd_upper == 'WAYPOINT' and lat == 0.0 and lng == 0.0:
                 print(f"[DroneCommander] ⚠️ WP{i+1} has 0,0 coords – skipped")
                 continue
- 
+
             mission_waypoints.append({
                 'seq':          i,
                 'frame':        3,
@@ -511,28 +487,24 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                 'mission_type': 0,
                 'str_cmd': cmd_upper
             })
- 
+
         if not mission_waypoints:
             print("[DroneCommander] ❌ No valid waypoints extracted!")
             self.commandFeedback.emit("❌ No valid waypoints to upload")
             return False
- 
-        # Re-sequence all items so seq numbers are 0-based and contiguous
+
         for idx, item in enumerate(mission_waypoints):
             item['seq'] = idx
             item['current'] = 0
-            
-            # The executable mission starts at seq=1. Make it the current active command.
             if idx == 1:
                 item['current'] = 1
- 
+
         print(f"[DroneCommander] ✅ Parsed {len(mission_waypoints)} waypoints (incl. speed cmd)")
         self.commandFeedback.emit(f"📡 Uploading {len(mission_waypoints)} waypoints…")
- 
-        # Set up the async queue and start the transaction
+
         self._upload_mission_queue = mission_waypoints
         self._upload_mission_active = True
- 
+
         try:
             print("[DroneCommander] 🗑️ Sending MISSION_COUNT to initiate upload...")
             self._drone.mav.mission_count_send(
@@ -544,123 +516,9 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
             self.commandFeedback.emit("❌ Failed to initiate mission upload")
             self._upload_mission_active = False
             return False
- 
-        return True   # "started" – result handled via async events
- 
- 
-    def _execute_takeoff_sequence(self, target_altitude, target_speed):
-        """Execute full takeoff sequence with arming and mode changes"""
-        try:
-            # Configure safety parameters
-            self.commandFeedback.emit("⚙️ Configuring parameters...")
-            params = {
-                b'FS_THR_ENABLE':    0,   # Disable RC throttle failsafe
-                b'FS_GCS_ENABLE':    0,   # Disable GCS failsafe
-                b'ARMING_CHECK':     0,   # Skip pre-arm checks (SITL)
-                # ── Battery failsafe ─────────────────────────────────────────
-                b'BATT_FS_LOW_ACT': 0,   # Battery low  → no action
-                b'BATT_FS_CRT_ACT': 0,   # Battery crit → no action
-                # ── SITL battery capacity ───────────────────────────────────
-                b'SIM_BATT_CAP_AH': 100000,  # 100 Ah — never runs out
-            }
- 
-            # Only disable geofence if the user has NOT explicitly enabled it
-            if not self._geofence_enabled:
-                params[b'FENCE_ENABLE'] = 0
-                print("[DroneCommander] 🛡️  GeoFence: user has NOT enabled fence — disabling for takeoff")
-            else:
-                print("[DroneCommander] 🛡️  GeoFence: user-enabled fence will remain ACTIVE during flight")
-                fence_desc = {
-                    1: "altitude limit",
-                    2: "radius limit",
-                    3: "altitude & radius limits",
-                }.get(self._geofence_type, "altitude & radius limits")
-                self.commandFeedback.emit(f"🛡️ GeoFence is ACTIVE — enforcing {fence_desc}")
- 
-            for p, v in params.items():
-                self._drone.mav.param_set_send(
-                    self._drone.target_system,
-                    self._drone.target_component,
-                    p, v, mavutil.mavlink.MAV_PARAM_TYPE_INT32)
-                time.sleep(0.3)
-            time.sleep(6)
- 
-            # Switch to GUIDED mode
-            self.commandFeedback.emit("🎯 Switching to GUIDED mode...")
-            mode_id = self._drone.mode_mapping().get("GUIDED")
-            self._drone.mav.set_mode_send(
-                self._drone.target_system,
-                mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-                mode_id)
-            time.sleep(2)
- 
-            if self._drone.flightmode != "GUIDED":
-                self.commandFeedback.emit("❌ Failed to enter GUIDED mode")
-                return False
- 
-            # Arm motors
-            self.commandFeedback.emit("🔐 Arming drone...")
-            for _ in range(5):
-                self._drone.mav.command_long_send(
-                    self._drone.target_system,
-                    self._drone.target_component,
-                    mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
-                    0, 1, 0, 0, 0, 0, 0, 0)
-                time.sleep(0.4)
-            time.sleep(2)
- 
-            if not self._drone.motors_armed():
-                self.commandFeedback.emit("❌ Failed to arm")
-                return False
- 
-            self.commandFeedback.emit("✅ Drone armed")
-            self.armDisarmCompleted.emit(True, "Drone Armed Successfully!")
- 
-            # Execute takeoff
-            self.commandFeedback.emit(f"🚁 Taking off to {target_altitude}m...")
-            self._drone.mav.command_long_send(
-                self._drone.target_system,
-                self._drone.target_component,
-                mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
-                0, 0, 0, 0, 0, 0, 0, target_altitude)
- 
-            # Monitor takeoff progress using RELATIVE altitude (above home)
-            start_rel_alt = None
-            start_time = time.time()
- 
-            while time.time() - start_time < 30:
-                try:
-                    tel = self.drone_model.telemetry
-                    rel_alt = tel.get("rel_alt", 0.0) if isinstance(tel, dict) else getattr(tel, "rel_alt", 0.0)
-                except Exception:
-                    rel_alt = 0.0
- 
-                if start_rel_alt is None:
-                    start_rel_alt = rel_alt
- 
-                gain = rel_alt - start_rel_alt
- 
-                if gain > 0:
-                    pct = min(100, int((gain / target_altitude) * 100))
-                    self.commandFeedback.emit(f"🚁 Climbing: {rel_alt:.1f}m above home ({pct}%)")
- 
-                if not self._drone.motors_armed():
-                    self.commandFeedback.emit("❌ Disarmed during takeoff")
-                    return False
- 
-                if gain >= target_altitude * 0.8:   # reached 80% of target
-                    self.commandFeedback.emit("✅ Takeoff successful!")
-                    return True
- 
-                time.sleep(0.5)
- 
-            self.commandFeedback.emit("❌ Takeoff timeout")
-            return False
- 
-        except Exception as e:
-            self.commandFeedback.emit(f"❌ Takeoff error: {e}")
-            return False
- 
+
+        return True
+
     def _send_item(self, wp):
         """Helper: send a single MISSION_ITEM_INT for the given waypoint dict."""
         self._drone.mav.mission_item_int_send(
@@ -684,73 +542,79 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
     # ═══════════════════════════════════════════════════════════════════════
 
     def _process_message(self, msg):
-        """Process incoming MAVLink messages dynamically"""
-        msg_type = msg.get_type()
+     """Process incoming MAVLink messages dynamically"""
+     msg_type = msg.get_type()
 
-        # ── 1. ASYNC MISSION UPLOAD HANDLER ───────────────────────────────
-        if self._upload_mission_active:
-            if msg_type in ('MISSION_REQUEST', 'MISSION_REQUEST_INT'):
-                seq = msg.seq
-                queue_len = len(self._upload_mission_queue)
+     if self._upload_mission_active:
+        if msg_type in ('MISSION_REQUEST', 'MISSION_REQUEST_INT'):
+            seq = msg.seq
+            queue_len = len(self._upload_mission_queue)
 
-                if seq < queue_len:
-                    wp = self._upload_mission_queue[seq]
-                    print(f"[DroneCommander] 📤 FC requested WP {seq+1}/{queue_len} – Sending instantly")
-                    self._send_item(wp)
-                    
-                    # Optional: debounce feedback to avoid spamming UI on massive files
-                    if seq % max(1, queue_len // 20) == 0 or seq == queue_len - 1:
-                        self.commandFeedback.emit(f"📤 Uploading WP {seq+1}/{queue_len}…")
+            if seq < queue_len:
+                wp = self._upload_mission_queue[seq]
+                print(f"[DroneCommander] 📤 FC requested WP {seq+1}/{queue_len} – Sending instantly")
+                self._send_item(wp)
 
-            elif msg_type == 'MISSION_ACK':
-                if msg.type == mavutil.mavlink.MAV_MISSION_ACCEPTED:
-                    queued_wps = len(self._upload_mission_queue)
-                    print(f"[DroneCommander] 🎉 Mission accepted! ({queued_wps} WPs)")
-                    self.commandFeedback.emit(f"✅ Mission uploaded successfully! ({queued_wps} WPs)")
-                    self._upload_mission_active = False
+                if seq % max(1, queue_len // 20) == 0 or seq == queue_len - 1:
+                    self.commandFeedback.emit(f"📤 Uploading WP {seq+1}/{queue_len}…")
 
-                    # Broadcast to QML seamlessly right after upload
-                    try:
-                        waypoints_for_qml = []
-                        for dict_wp in self._upload_mission_queue:
-                            if dict_wp.get('str_cmd') == 'HOME':
-                                continue
-                            waypoints_for_qml.append({
-                                'lat': dict_wp['x'], 'lng': dict_wp['y'], 'altitude': dict_wp['z'],
-                                'command': dict_wp.get('str_cmd', 'WAYPOINT')
-                            })
-                        if hasattr(self, 'drone_model') and self.drone_model:
-                            self.drone_model.setMissionPath(waypoints_for_qml)
-                    except Exception as e:
-                        print(f"[DroneCommander] ⚠️ missionPath QML broadcast error: {e}")
-                else:
-                    codes = { 1: 'ERROR', 2: 'UNSUPPORTED_FRAME', 3: 'INVALID_SEQUENCE',
-                              4: 'INVALID_PARAM', 5: 'INVALID_COUNT', 6: 'UNSUPPORTED' }
-                    code_name = codes.get(msg.type, f'code {msg.type}')
-                    print(f"[DroneCommander] ❌ Mission rejected: {code_name}")
-                    self.commandFeedback.emit(f"❌ Mission rejected: {code_name}")
-                    self._upload_mission_active = False
-        # ───────────────────────────────────────────────────────────────────
+        elif msg_type == 'MISSION_ACK':
+            if msg.type == mavutil.mavlink.MAV_MISSION_ACCEPTED:
+                queued_wps = len(self._upload_mission_queue)
+                print(f"[DroneCommander] 🎉 Mission accepted! ({queued_wps} WPs)")
+                self.commandFeedback.emit(f"✅ Mission uploaded successfully! ({queued_wps} WPs)")
+                self._upload_mission_active = False
 
-        if msg_type == 'MISSION_CURRENT':
-            new_wp = msg.seq
-
-            if new_wp != self._mission_current and new_wp > 0:
-                old_wp = self._mission_current
-                self._mission_current = new_wp
-
-                print(f"\n[DroneCommander] 🎯 Waypoint changed: {old_wp} → {new_wp}")
-
-                self.missionCurrentChanged.emit(new_wp)
-
-                if new_wp < len(self._mission_waypoints):
-                    self._execute_waypoint_command(new_wp)
-
-        elif msg_type == 'PARAM_VALUE':
-            if self._param_request_active:
-                self.add_parameter_to_queue(msg)
+                try:
+                    waypoints_for_qml = []
+                    for dict_wp in self._upload_mission_queue:
+                        if dict_wp.get('str_cmd') == 'HOME':
+                            continue
+                        waypoints_for_qml.append({
+                            'lat': dict_wp['x'], 'lng': dict_wp['y'], 'altitude': dict_wp['z'],
+                            'command': dict_wp.get('str_cmd', 'WAYPOINT')
+                        })
+                    if hasattr(self, 'drone_model') and self.drone_model:
+                        self.drone_model.setMissionPath(waypoints_for_qml)
+                except Exception as e:
+                    print(f"[DroneCommander] ⚠️ missionPath QML broadcast error: {e}")
             else:
-                self._process_param_message(msg)
+                codes = { 1: 'ERROR', 2: 'UNSUPPORTED_FRAME', 3: 'INVALID_SEQUENCE',
+                          4: 'INVALID_PARAM', 5: 'INVALID_COUNT', 6: 'UNSUPPORTED' }
+                code_name = codes.get(msg.type, f'code {msg.type}')
+                print(f"[DroneCommander] ❌ Mission rejected: {code_name}")
+                self.commandFeedback.emit(f"❌ Mission rejected: {code_name}")
+                self._upload_mission_active = False
+
+     if msg_type == 'HEARTBEAT':
+        custom_mode = getattr(msg, 'custom_mode', None)
+        if custom_mode is not None:
+            try:
+                mode_id   = int(custom_mode)
+                mode_name = self._FLIGHT_MODE_ID_TO_NAME.get(mode_id, f"Mode({mode_id})")
+                self.currentFlightModeChanged.emit(mode_name)
+            except Exception as e:
+                print(f"[DroneCommander] ⚠️ HEARTBEAT mode parse error: {e}")
+
+     if msg_type == 'MISSION_CURRENT':
+        new_wp = msg.seq
+
+        if new_wp != self._mission_current and new_wp > 0:
+            old_wp = self._mission_current
+            self._mission_current = new_wp
+
+            print(f"\n[DroneCommander] 🎯 Waypoint changed: {old_wp} → {new_wp}")
+
+            self.missionCurrentChanged.emit(new_wp)
+
+            if new_wp < len(self._mission_waypoints):
+                self._execute_waypoint_command(new_wp)
+
+     elif msg_type == 'PARAM_VALUE':
+        if self._param_request_active:
+            self.add_parameter_to_queue(msg)
+        else:
+            self._process_param_message(msg)
 
     def _execute_waypoint_command(self, waypoint_index):
         """Execute special command for reached waypoint"""
@@ -802,31 +666,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
 
     @pyqtSlot(float, float, float, result=bool)
     def sendRallyPoint(self, lat, lon, alt):
-        """
-        Send a rally point to the autopilot using proper ArduPilot protocol.
-        Rally points are safe return locations for failsafe operations.
-
-        WHY THIS METHOD:
-        ----------------
-        ArduPilot does NOT use MAV_CMD_NAV_RALLY_POINT with command_long_send().
-        Instead, rally points MUST be sent using the RALLY_POINT MAVLink message
-        via rally_point_send().
-
-        CRITICAL REQUIREMENTS:
-        ----------------------
-        1. Index is 0-based (first rally = 0, second = 1, etc.)
-        2. Total count must be correct (total rally points after adding this one)
-        3. Altitude MUST be in CENTIMETERS (cm), not meters
-        4. Lat/Lon MUST be in 1e7 format (degrees * 10,000,000)
-
-        Args:
-            lat (float): Latitude in degrees
-            lon (float): Longitude in degrees
-            alt (float): Altitude in METERS (will be converted to cm internally)
-
-        Returns:
-            bool: True if command sent successfully
-        """
+        """Send a rally point to the autopilot using proper ArduPilot protocol."""
         if not self._is_drone_ready():
             self.commandFeedback.emit("❌ Cannot send rally point: Drone not connected")
             return False
@@ -849,10 +689,10 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                 total_count,
                 int(lat * 1e7),
                 int(lon * 1e7),
-                int(alt * 100),   # altitude in CENTIMETERS
-                0,                # break_alt: not used by ArduCopter
-                0,                # land_dir: not used by ArduCopter
-                0                 # flags
+                int(alt * 100),
+                0,
+                0,
+                0
             )
 
             with self._rally_point_lock:
@@ -882,14 +722,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
 
     @pyqtSlot(result=bool)
     def clearAllRallyPoints(self):
-        """
-        Clear all rally points from the autopilot.
-
-        HOW IT WORKS:
-        -------------
-        Send a rally_point_send() with count=0. ArduPilot interprets this
-        as a command to delete all existing rally points.
-        """
+        """Clear all rally points from the autopilot."""
         if not self._is_drone_ready():
             self.commandFeedback.emit("❌ Cannot clear rally points: Drone not connected")
             return False
@@ -901,7 +734,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
             self._drone.mav.rally_point_send(
                 self._drone.target_system,
                 self._drone.target_component,
-                0, 0,   # idx=0, count=0 → CLEAR ALL
+                0, 0,
                 0, 0, 0, 0, 0, 0
             )
 
@@ -938,38 +771,22 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
 
     @pyqtSlot(bool, int, int, int, int)
     def writeGeoFence(self, enabled, fence_type, fence_action, max_altitude, max_radius):
-        """
-        Write geo-fence parameters to ArduPilot (runs in background thread).
-
-        Each parameter is confirmed with a PARAM_VALUE ACK before moving to
-        the next one, so the FC actually stores every value.
-
-        Args:
-            enabled      (bool): True = enable the fence after writing
-            fence_type   (int) : FENCE_TYPE bitmask  (1=Alt, 2=Circle, 3=Alt+Circle)
-            fence_action (int) : FENCE_ACTION         (0=RTL, 1=Land)
-            max_altitude (int) : FENCE_ALT_MAX in metres
-            max_radius   (int) : FENCE_RADIUS in metres
-        """
+        """Write geo-fence parameters to ArduPilot (runs in background thread)."""
         if not self._is_drone_ready():
             self.commandFeedback.emit("❌ GeoFence write failed: Drone not connected")
             return
 
-        # Persist intent immediately so takeoff knows before the thread finishes
         self._geofence_enabled  = bool(enabled)
-        self._geofence_type     = int(fence_type)   # 1=Alt, 2=Circle, 3=Both
+        self._geofence_type     = int(fence_type)
         self._geofence_radius   = float(max_radius)
         self._geofence_alt_max  = float(max_altitude)
-        self._geofence_action   = int(fence_action)  # 1=RTL, 2=Land
+        self._geofence_action   = int(fence_action)
 
-        # Start / stop the GCS-side software enforcement monitor
         if enabled:
             self._start_geofence_monitor()
         else:
             self._stop_geofence_monitor()
 
-        # Run the actual MAVLink writes in a daemon thread so the UI stays
-        # responsive during the confirmation round-trips.
         t = threading.Thread(
             target=self._write_geofence_thread,
             args=(enabled, fence_type, fence_action, max_altitude, max_radius),
@@ -991,8 +808,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
 
             self.commandFeedback.emit("🛡️ Writing GeoFence to drone...")
 
-            # Send all params with ACK confirmation.
-            # FENCE_ENABLE is written last so the FC validates the rest first.
             param_jobs = [
                 (b'FENCE_TYPE',    fence_type,          mavutil.mavlink.MAV_PARAM_TYPE_INT32),
                 (b'FENCE_ACTION',  fence_action,         mavutil.mavlink.MAV_PARAM_TYPE_INT32),
@@ -1036,8 +851,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
     # ═══════════════════════════════════════════════════════════════════════
 
     def _start_geofence_monitor(self):
-        """Start the background GCS-side geofence enforcement thread."""
-        # Don't spawn a second thread if one is already running
         if self._geofence_monitor_thread and self._geofence_monitor_thread.is_alive():
             print("[DroneCommander] 🛡️  GeoFence monitor already running")
             return
@@ -1051,7 +864,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
         print("[DroneCommander] 🛡️  GCS GeoFence monitor STARTED")
 
     def _stop_geofence_monitor(self):
-        """Signal the monitor loop to stop."""
         self._geofence_monitor_active = False
         print("[DroneCommander] 🛡️  GCS GeoFence monitor STOPPED")
 
@@ -1067,11 +879,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
         return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
     def _geofence_monitor_loop(self):
-        """
-        Background thread: independently enforces the geo-fence from GCS side.
-        This is the backup layer when ArduPilot's onboard fence does not trigger
-        reliably (e.g. SITL, bad home-point, firmware quirks).
-        """
+        """Background thread: independently enforces the geo-fence from GCS side."""
         import math
         print("[DroneCommander] 🛡️  GeoFence monitor loop running")
 
@@ -1083,7 +891,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
         while self._geofence_monitor_active:
             time.sleep(1.0)
 
-            # Stop silently if fence was disabled
             if not self._geofence_enabled:
                 continue
 
@@ -1107,7 +914,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                 if lat == 0.0 or lon == 0.0:
                     continue
 
-                # ── Capture home on first valid GPS fix ──────────────────────
                 if not home_set:
                     home_lat, home_lon = lat, lon
                     home_set = True
@@ -1117,8 +923,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                         f"🏠 GeoFence home: {home_lat:.5f}, {home_lon:.5f}")
                     continue
 
-                # ── Circle / radius check ────────────────────────────────────
-                if self._geofence_type in (2, 3):   # Circle or Both
+                if self._geofence_type in (2, 3):
                     dist = self._haversine_m(home_lat, home_lon, lat, lon)
 
                     if dist > self._geofence_radius and not circ_breach_active:
@@ -1130,10 +935,9 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                         self._trigger_fence_action()
 
                     elif dist <= self._geofence_radius:
-                        circ_breach_active = False   # Back inside — reset
+                        circ_breach_active = False
 
-                # ── Altitude check ───────────────────────────────────────────
-                if self._geofence_type in (1, 3):   # Alt or Both
+                if self._geofence_type in (1, 3):
                     if rel_alt > self._geofence_alt_max and not alt_breach_active:
                         alt_breach_active = True
                         msg = (f"🚨 GCS GeoFence BREACH — "
@@ -1143,7 +947,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                         self._trigger_fence_action()
 
                     elif rel_alt <= self._geofence_alt_max:
-                        alt_breach_active = False    # Back inside — reset
+                        alt_breach_active = False
 
             except Exception as e:
                 print(f"[DroneCommander] ⚠️  GeoFence monitor error: {e}")
@@ -1259,18 +1063,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
         return success
 
     def _send_param_set(self, param_id, param_value, param_type=None, timeout=5.0):
-        """
-        Send a parameter set command and wait for confirmation.
-
-        Args:
-            param_id (bytes): Parameter name (e.g., b'BATT_FS_LOW_ACT')
-            param_value (int/float): Value to set
-            param_type (int, optional): MAV_PARAM_TYPE_* constant
-            timeout (float): Seconds to wait for confirmation
-
-        Returns:
-            bool: True if parameter was confirmed, False otherwise
-        """
+        """Send a parameter set command and wait for confirmation."""
         if not self._is_drone_ready():
             return False
 
@@ -1515,8 +1308,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
 
         t = threading.Thread(target=self._process_parameter_queue, daemon=True)
         t.start()
-        
-        # Reset progress bar to 0 initially
+
         self.parameterFetchProgress.emit(0, 1)
 
         self.commandFeedback.emit("Requesting parameters from drone...")
@@ -1549,7 +1341,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                                 param_data['type'],
                                 param_data['index'],
                                 param_data['count'])
-                                
+
                             if total_params:
                                 self.parameterFetchProgress.emit(len(collected_params), total_params)
 
@@ -1577,11 +1369,42 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                 self.parameterFetchProgress.emit(len(collected_params), len(collected_params))
                 self.commandFeedback.emit(f"✅ Loaded {len(collected_params)} parameters!")
 
+                # ✅ After a full parameter load, broadcast the current FLTMODE values
+                # so QML ComboBoxes reflect what's actually on the FC right now.
+                self._emit_flight_modes_from_params(collected_params)
+
         except Exception as e:
             print(f"[DroneCommander] ❌ Parameter fetch error: {e}")
         finally:
             self._fetching_params = False
             self._param_request_active = False
+
+    def _emit_flight_modes_from_params(self, params: dict):
+        """
+        Read FLTMODE1–6 from the given param dict and emit flightModesConfirmed
+        so the QML UI can sync its ComboBoxes without a separate request.
+        """
+        # Canonical display names used in the QML modeOptions list
+        _ID_TO_DISPLAY = {
+            0: "Stabilize", 1: "Acro",     2: "AltHold",  3: "Auto",
+            4: "Guided",    5: "Loiter",   6: "RTL",      7: "Circle",
+            9: "Land",     11: "Drift",   13: "Sport",   14: "Flip",
+           15: "Autotune", 16: "PosHold", 17: "Brake",   18: "Throw",
+           23: "Follow",
+        }
+
+        mode_names = []
+        for slot in range(1, 7):
+            key = f"FLTMODE{slot}"
+            try:
+                mode_id = int(float(params[key]['value']))
+                display = _ID_TO_DISPLAY.get(mode_id, "Stabilize")
+            except (KeyError, ValueError, TypeError):
+                display = "Stabilize"
+            mode_names.append(display)
+
+        print(f"[DroneCommander] 📡 Broadcasting flight modes to QML: {mode_names}")
+        self.flightModesConfirmed.emit(mode_names)
 
     def add_parameter_to_queue(self, param_msg):
         """Add parameter message to queue (non-blocking to protect MAVLink thread)"""
@@ -1592,8 +1415,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
             if isinstance(param_id, bytes):
                 param_id = param_id.decode('utf-8').strip('\x00')
 
-            # ✅ MERGED from Doc 4: use put_nowait so we never block the MAVLink
-            # thread; drop the message silently if the queue is full.
             try:
                 self._param_queue.put_nowait({
                     'name':  param_id,
@@ -1603,7 +1424,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
                     'count': int(param_msg.param_count)
                 })
             except queue.Full:
-                pass  # Queue full — parameter will be re-requested if missing
+                pass
         except Exception as e:
             print(f"[DroneCommander] ⚠️ Queue error: {e}")
 
@@ -1623,9 +1444,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
             param_index = int(msg.param_index)
             param_count = int(msg.param_count)
 
-            # ✅ MERGED from Doc 4: do NOT emit parameterReceived here — that
-            # signal fires cross-thread on every PARAM_VALUE message and would
-            # flood Qt's event queue during a full parameter download.
             with self._param_lock:
                 if param_id in self._parameters:
                     self._parameters[param_id]['value'] = str(param_value)
@@ -1644,16 +1462,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
 
     @pyqtSlot(str, result=bool)
     def writeParameters(self, params_json):
-        """
-        Write multiple parameters to drone from JSON string.
-        Called from QML when user clicks "Write" button.
-
-        Args:
-            params_json (str): JSON string like '{"PARAM_NAME": 123.45, "PARAM2": 67.89}'
-
-        Returns:
-            bool: True if all parameters written successfully
-        """
+        """Write multiple parameters to drone from JSON string."""
         if not self._is_drone_ready():
             self.commandFeedback.emit("❌ Drone not connected")
             return False
@@ -1741,7 +1550,6 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
     @pyqtSlot(str, float, result=bool)
     def setParameter(self, param_id, param_value):
         """Set single parameter using the shared _send_param_set helper"""
-        # ✅ MERGED from Doc 4: cleaner implementation reusing _send_param_set
         if not self._is_drone_ready():
             return False
         try:
@@ -1758,19 +1566,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
 
     @pyqtSlot(bool, int, int, int, int, result=bool)
     def setGeoFence(self, enabled, fence_type, fence_action, max_altitude, max_radius):
-        """
-        Configure geofence parameters on the drone.
-
-        Args:
-            enabled (bool): Enable/disable geofence
-            fence_type (int): 0=Alt+Circle, 1=Alt Only, 2=Circle Only
-            fence_action (int): 0=RTL, 1=Land
-            max_altitude (int): Maximum altitude in meters
-            max_radius (int): Maximum radius in meters
-
-        Returns:
-            bool: True if all parameters set successfully
-        """
+        """Configure geofence parameters on the drone."""
         if not self._is_drone_ready():
             self.commandFeedback.emit("❌ Cannot set geofence: Drone not connected")
             return False
@@ -1847,15 +1643,7 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
 
     @pyqtSlot(float, float, float, result=bool)
     def setGimbalAngle(self, pitch: float, yaw: float, roll: float) -> bool:
-        """
-        Point the gimbal to the given angles (degrees).
-        Uses MAV_CMD_DO_MOUNT_CONTROL (205).
-
-        Args:
-            pitch:  -90 (down) to +30 (up)
-            yaw:   -180 to +180
-            roll:   -30 to +30
-        """
+        """Point the gimbal to the given angles (degrees)."""
         print(f"[DroneCommander] 🎯 Gimbal: pitch={pitch:.1f}° yaw={yaw:.1f}° roll={roll:.1f}°")
 
         if not self._is_drone_ready():
@@ -1866,13 +1654,13 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
             self._drone.mav.command_long_send(
                 self._drone.target_system,
                 self._drone.target_component,
-                mavutil.mavlink.MAV_CMD_DO_MOUNT_CONTROL,  # 205
+                mavutil.mavlink.MAV_CMD_DO_MOUNT_CONTROL,
                 0,
                 pitch,
                 roll,
                 yaw,
                 0, 0, 0,
-                2   # MAV_MOUNT_MODE_MAVLINK_TARGETING
+                2
             )
             self.commandFeedback.emit(
                 f"🎯 Gimbal → P:{pitch:.0f}° Y:{yaw:.0f}° R:{roll:.0f}°")
@@ -1886,3 +1674,107 @@ class DroneCommander(QObject, BatteryFailSafeExtension):
         """Reset the gimbal to straight-forward (0 / 0 / 0 degrees)."""
         print("[DroneCommander] ⊙ Centering gimbal")
         return self.setGimbalAngle(0.0, 0.0, 0.0)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # FLIGHT MODE SLOT CONFIGURATION
+    # ═══════════════════════════════════════════════════════════════════════
+
+    @pyqtSlot(int, str, result=bool)
+    def setFlightModeSlot(self, slot: int, mode_name: str) -> bool:
+        if not self._is_drone_ready():
+            return False
+        if not 1 <= slot <= 6:
+            self.commandFeedback.emit(f"❌ Invalid slot {slot}: must be 1–6")
+            return False
+        mode_name_upper = mode_name.upper()
+        mode_id = self._FLIGHT_MODE_MAP.get(mode_name_upper)
+        if mode_id is None:
+            self.commandFeedback.emit(f"❌ Unknown mode: {mode_name}")
+            return False
+        param_name = f"FLTMODE{slot}".encode("utf-8")
+        ok = self._send_param_set(param_name, mode_id, mavutil.mavlink.MAV_PARAM_TYPE_INT32)
+        if ok:
+            self.commandFeedback.emit(f"✅ FLTMODE{slot} = {mode_name_upper} ({mode_id})")
+        else:
+            self.commandFeedback.emit(f"⚠️ FLTMODE{slot} write unconfirmed")
+        return ok
+
+    @pyqtSlot(int, result=bool)
+    def setFlightModeChannel(self, channel: int) -> bool:
+        if not self._is_drone_ready():
+            return False
+        if not 1 <= channel <= 16:
+            self.commandFeedback.emit(f"❌ Invalid channel {channel}: must be 1–16")
+            return False
+        ok = self._send_param_set(b"FLTMODE_CH", channel, mavutil.mavlink.MAV_PARAM_TYPE_INT32)
+        if ok:
+            self.commandFeedback.emit(f"✅ FLTMODE_CH = {channel}")
+        else:
+            self.commandFeedback.emit(f"⚠️ FLTMODE_CH write unconfirmed")
+        return ok
+
+    @pyqtSlot('QVariantList')
+    def saveAllFlightModes(self, modes):
+        """
+        Save all 6 flight modes to the FC in a background thread.
+
+        After every slot is written (confirmed or not), this method emits the
+        flightModesConfirmed signal with the list of names that were actually
+        accepted by the FC.  QML connects to this signal to update its
+        ComboBoxes — the UI always reflects what the FC confirmed, never just
+        what the user typed.
+        """
+        def _save():
+            mode_list = list(modes)
+
+            # Canonical display names that match the QML modeOptions list exactly.
+            # We use these to build the confirmed list that goes back to QML.
+            _ID_TO_DISPLAY = {
+                0: "Stabilize", 1: "Acro",     2: "AltHold",  3: "Auto",
+                4: "Guided",    5: "Loiter",   6: "RTL",      7: "Circle",
+                9: "Land",     11: "Drift",   13: "Sport",   14: "Flip",
+               15: "Autotune", 16: "PosHold", 17: "Brake",   18: "Throw",
+               23: "Follow",
+            }
+
+            confirmed_names = []   # will hold the 6 confirmed display names
+
+            for i, mode_name in enumerate(mode_list):
+                slot = i + 1
+                mode_upper = str(mode_name).upper()
+                mode_id    = self._FLIGHT_MODE_MAP.get(mode_upper)
+
+                if mode_id is None:
+                    self.commandFeedback.emit(f"❌ Unknown mode: {mode_name}")
+                    # Keep the slot in the confirmed list as whatever was
+                    # requested so the UI doesn't silently drop a row.
+                    confirmed_names.append(str(mode_name))
+                    continue
+
+                param_name = f"FLTMODE{slot}".encode("utf-8")
+                ok = self._send_param_set(param_name, mode_id,
+                                          mavutil.mavlink.MAV_PARAM_TYPE_INT32)
+
+                if ok:
+                    # Use the canonical display name that the QML ComboBox knows
+                    confirmed_names.append(_ID_TO_DISPLAY.get(mode_id, str(mode_name)))
+                    print(f"[DroneCommander] ✅ FLTMODE{slot} = {mode_upper} ({mode_id}) confirmed")
+                else:
+                    # Write was unconfirmed — keep whatever was requested so the
+                    # UI stays in sync with the user's intent rather than
+                    # silently reverting to the previous value.
+                    confirmed_names.append(_ID_TO_DISPLAY.get(mode_id, str(mode_name)))
+                    self.commandFeedback.emit(f"⚠️ FLTMODE{slot} unconfirmed")
+
+            # Pad to exactly 6 entries in case fewer than 6 modes were passed
+            while len(confirmed_names) < 6:
+                confirmed_names.append("Stabilize")
+
+            self.commandFeedback.emit("✅ All flight modes saved!")
+            print(f"[DroneCommander] 📡 Emitting flightModesConfirmed: {confirmed_names}")
+
+            # ✅ KEY FIX: emit the signal so QML ComboBoxes update to the
+            # values the FC actually accepted.
+            self.flightModesConfirmed.emit(confirmed_names)
+
+        threading.Thread(target=_save, daemon=True).start()

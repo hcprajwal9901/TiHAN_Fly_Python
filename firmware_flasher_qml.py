@@ -1,7 +1,6 @@
-import os, sys, re, subprocess, time
+import os, sys, re, subprocess, time, threading
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QThread, QTimer
 import serial.tools.list_ports
-from modules.port_scan_lock import PORT_SCAN_LOCK
 
 class PortScanner(QThread):
     """Background thread to scan for serial ports"""
@@ -10,20 +9,50 @@ class PortScanner(QThread):
     def __init__(self):
         super().__init__()
         self.running = True
+        # _scan_allowed is SET when scanning is permitted, CLEARED when paused
+        self._scan_allowed = threading.Event()
+        self._scan_allowed.set()  # allow scanning by default
     
+    def pause(self):
+        """Pause scanning (drone connected — protect the serial handle)."""
+        self._scan_allowed.clear()
+
+    def resume(self):
+        """Resume scanning (drone disconnected)."""
+        self._scan_allowed.set()
+
     def run(self):
-        while self.running:
-            ports = self.scan_ports()
-            self.portsFound.emit(ports)
-            time.sleep(2)  # Scan every 2 seconds
+        try:
+            while self.running:
+                # Use plain time.sleep instead of threading.Event.wait(timeout=...)
+                # because Event.wait() internally uses WaitForSingleObjectEx (a COM-
+                # alertable wait) which triggers RPC apartment notifications that
+                # Python reports as fatal 0x80010108/0x80010012 exceptions even though
+                # they are harmless.  Plain sleep avoids COM-alertable waits entirely.
+                if not self._scan_allowed.is_set():
+                    time.sleep(0.1)
+                    continue  # still paused — loop back
+
+                ports = self.scan_ports()
+                self.portsFound.emit(ports)
+                # Sleep in small increments so stop() interrupts quickly
+                for _ in range(20):   # 20 × 0.1 s = 2 s total
+                    if not self.running or not self._scan_allowed.is_set():
+                        break
+                    time.sleep(0.1)
+        except Exception as e:
+            print(f"[PortScanner] Error in run loop: {e}")
     
     def scan_ports(self):
         """Scan for available serial ports with device information"""
+        import modules.port_scan_lock as psl
+        if psl.DISABLE_PORT_SCANNING:
+            return []  # Drone is connected — don't touch Windows Device Manager
+        
         port_list = []
         
         try:
-            with PORT_SCAN_LOCK:
-                available_ports = serial.tools.list_ports.comports()
+            available_ports = serial.tools.list_ports.comports()  # uses global thread-safe patch
             
             for port in available_ports:
                 port_info = {
@@ -294,7 +323,19 @@ class FirmwareFlasher(QObject):
         if not self.port_scanner.isRunning():
             self.port_scanner.start()
             print("[FirmwareFlasher] PortScanner started (deferred)")
-    
+
+    @pyqtSlot()
+    def pausePortScanner(self):
+        """Pause background scanning — call when drone connects."""
+        self.port_scanner.pause()
+        print("[FirmwareFlasher] PortScanner PAUSED (drone connected)")
+
+    @pyqtSlot()
+    def resumePortScanner(self):
+        """Resume background scanning — call when drone disconnects."""
+        self.port_scanner.resume()
+        print("[FirmwareFlasher] PortScanner RESUMED (drone disconnected)")
+
     @pyqtSlot()
     def scanPorts(self):
         """Manually trigger port scan"""

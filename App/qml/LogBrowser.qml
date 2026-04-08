@@ -2,8 +2,6 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import QtCharts 2.15
-import QtQuick.Dialogs 1.3 as OldDialogs
-import Qt.labs.platform 1.1
 import QtQuick.Window 2.15
 
 Window {
@@ -199,7 +197,9 @@ Window {
                 Button {
                     text: "Load Log"
                     enabled: !isLoading
-                    onClicked: fileDialog.open()
+                    onClicked: {
+                        if (logBrowser) logBrowser.openFileDialogForReview()
+                    }
                 }
 
                 Button {
@@ -714,19 +714,7 @@ Window {
         }
     }
 
-    // ────────────────────────────────────────────────────────────────────
-    // File dialog
-    // ────────────────────────────────────────────────────────────────────
 
-    FileDialog {
-        id: fileDialog
-        title: "Select Log File"
-        fileMode: FileDialog.OpenFile
-        nameFilters: ["Log files (*.tlog *.bin)", "All files (*)"]
-        onAccepted: {
-            logBrowser.loadLog(file.toString().replace("file:///", ""))
-        }
-    }
 
     // ────────────────────────────────────────────────────────────────────
     // Graph data handler
@@ -734,6 +722,13 @@ Window {
 
     Connections {
         target: logBrowser
+
+        function onLogCleared() {
+            // Backend has reset _current_log → messageTypes now returns [].
+            // Force the ListView to re-evaluate its model BEFORE the new parse
+            // result arrives so Qt never sees a negative model-size delta.
+            messageTree.model = []
+        }
 
         function onLoadProgress(msg) {
             if (msg === "") {
@@ -743,6 +738,17 @@ Window {
                 isLoading  = true
                 loadStatus = msg
             }
+        }
+
+        function onLogLoaded() {
+            // Parse finished — restore the live binding so the tree populates.
+            messageTree.model = logBrowser ? logBrowser.messageTypes : []
+        }
+
+        function onFileDialogResult(path) {
+            // Path chosen from openFileDialogForReview() Python slot.
+            // Load it directly — no deferral needed inside the LogBrowser window.
+            logBrowser.loadLog(path)
         }
 
         function onGraphDataReady(channelName, timestamps, values, axisId) {

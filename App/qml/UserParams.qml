@@ -126,10 +126,19 @@ ApplicationWindow {
         }
 
         if (droneCommander) {
-            droneCommander.parametersUpdated.connect(onParametersUpdated)
-            console.log("✅ Connected to DroneCommander signals")
             loadParametersFromBackend()
         }
+    }
+
+    onDroneCommanderChanged: {
+        if (droneCommander) {
+            loadParametersFromBackend()
+        }
+    }
+
+    Connections {
+        target: droneCommander
+        function onParametersUpdated() { root.onParametersUpdated() }
     }
 
     function onParametersUpdated() {

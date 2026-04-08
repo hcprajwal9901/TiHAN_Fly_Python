@@ -104,13 +104,18 @@ ApplicationWindow {
         console.log("Parameter UI initialized")
         console.log("droneCommander:", droneCommander)
         console.log("droneModel:", droneModel)
-        
-        if (droneCommander) {
-            droneCommander.parametersUpdated.connect(onParametersUpdated)
-            droneCommander.commandFeedback.connect(onCommandFeedback)
-            droneCommander.parameterFetchProgress.connect(onParameterFetchProgress)
-            console.log("✅ Connected to DroneCommander signals")
-        }
+        if (droneCommander) loadParametersFromBackend()
+    }
+
+    onDroneCommanderChanged: {
+        if (droneCommander) loadParametersFromBackend()
+    }
+
+    Connections {
+        target: droneCommander
+        function onParametersUpdated() { root.onParametersUpdated() }
+        function onCommandFeedback(message) { root.onCommandFeedback(message) }
+        function onParameterFetchProgress(count, total) { root.onParameterFetchProgress(count, total) }
     }
 
     function onParameterFetchProgress(count, total) {
@@ -186,7 +191,7 @@ ApplicationWindow {
 
     function requestParameters() {
         if (!droneCommander) {
-            statusLabel.text = "✅ Parameters already loaded"
+            statusLabel.text = "❌ DroneCommander not connected"
             return
         }
         if (!droneModel || !droneModel.isConnected) {

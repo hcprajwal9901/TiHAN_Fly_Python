@@ -32,15 +32,10 @@ _WMI_AVAILABLE = False
 _wmi = None
 
 if sys.platform == "win32":
-    try:
-        import wmi as _wmi_module
-        _wmi = _wmi_module
-        _WMI_AVAILABLE = True
-        print("[PnpWatcher] ✅ WMI available — USB hotplug detection enabled")
-    except ImportError:
-        print("[PnpWatcher] ⚠️  `wmi` package not found — hotplug disabled (pip install wmi)")
-    except Exception as e:
-        print(f"[PnpWatcher] ⚠️  WMI initialisation error: {e} — hotplug disabled")
+    # WMI has been disabled due to fatal COM RPC_E_DISCONNECTED access violations 
+    # during heavy load. We now rely exclusively on the robust polling mechanism.
+    _WMI_AVAILABLE = False
+    print("[PnpWatcher] ℹ️ WMI disabled for stability — using robust polling fallback")
 else:
     print(f"[PnpWatcher] ℹ️  Non-Windows platform ({sys.platform}) — hotplug detection skipped")
 
@@ -48,6 +43,9 @@ else:
 def _get_com_ports() -> set[str]:
     """Return the set of currently active COM port device names."""
     try:
+        import modules.port_scan_lock as psl
+        if psl.DISABLE_PORT_SCANNING:
+            return set()
         return {p.device for p in serial.tools.list_ports.comports()}
     except Exception:
         return set()
@@ -85,10 +83,17 @@ class PnpWatcher(QThread):
 
     # ---------------------------------------------------------------------- #
     def run(self):
-        if _WMI_AVAILABLE:
-            self._run_wmi()
-        else:
-            self._run_polling()
+        # NOTE: pythoncom.CoInitialize() removed intentionally.
+        # Having COM apartments in background threads interferes with native
+        # Windows dialogs (IFileDialog uses COM), causing RPC_E_DISCONNECTED
+        # to propagate process-wide and corrupt the MAVLink serial handle.
+        try:
+            if _WMI_AVAILABLE:
+                self._run_wmi()
+            else:
+                self._run_polling()
+        except Exception as e:
+            print(f"[PnpWatcher] Error in run: {e}")
 
     # ---------------------------------------------------------------------- #
     def _run_wmi(self):
@@ -98,6 +103,9 @@ class PnpWatcher(QThread):
         and then diffs the COM port list to find what changed.
         """
         try:
+            import pythoncom
+            pythoncom.CoInitialize()
+            
             # Each thread needs its own WMI connection
             c = _wmi.WMI()
             watcher = c.Win32_DeviceChangeEvent.watch_for()
@@ -160,6 +168,12 @@ class PnpWatcher(QThread):
             print(f"[PnpWatcher] ❌ WMI initialisation failed in thread: {outer_e}")
             print("[PnpWatcher] Falling back to polling mode…")
             self._run_polling()
+        finally:
+            try:
+                import pythoncom
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
 
     # ---------------------------------------------------------------------- #
     def _run_polling(self):
@@ -169,12 +183,20 @@ class PnpWatcher(QThread):
         Slower (up to 2 s latency) but totally portable.
         """
         print(f"[PnpWatcher] Polling mode active (interval={self.POLL_INTERVAL}s)")
-        known_ports = _get_com_ports()
+        # Skip the initial scan — if drone is already connected, comports() can
+        # corrupt the active MAVLink serial handle via Windows SetupAPI.
+        # We start with an empty set; the first real poll happens after POLL_INTERVAL.
+        known_ports: set[str] = set()
 
         while not self._should_stop:
             time.sleep(self.POLL_INTERVAL)
             if self._should_stop:
                 break
+
+            import modules.port_scan_lock as psl
+            if psl.DISABLE_PORT_SCANNING:
+                # Drone is connected — don't touch Windows Device Manager
+                continue
 
             current_ports = _get_com_ports()
             appeared = current_ports - known_ports

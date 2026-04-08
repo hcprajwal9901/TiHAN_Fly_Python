@@ -1,5 +1,5 @@
 python -m PyInstaller --onefile `
- --name TiHAN-Fly-Python-v2.1.2 `
+ --name TiHAN-Fly-Python-v2.1.3 `
  --icon "App\tihan1.ico" `
  --add-data "App\tihan1.ico;App" `
  --add-data "App\qml;App\qml" `

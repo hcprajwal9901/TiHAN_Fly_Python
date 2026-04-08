@@ -89,9 +89,76 @@ class _ParseWorker(QThread):
 class LogBrowserBackend(QObject):
 
     logLoaded      = pyqtSignal()
+    logCleared     = pyqtSignal()   # fired when current log is unloaded (model → [])
     loadError      = pyqtSignal(str)
     loadProgress   = pyqtSignal(str)
     graphDataReady = pyqtSignal(str, list, list, int)
+    fileDialogResult = pyqtSignal(str)   # emitted when a log file is chosen
+
+    @pyqtSlot()
+    def openFileDialogForReview(self):
+        """
+        Show a NON-BLOCKING Qt file dialog for log file selection.
+
+        WHY non-blocking matters on Windows + Python 3.14:
+        ────────────────────────────────────────────────────
+        Both QFileDialog.getOpenFileName() and QDialog.exec_() run a NESTED
+        synchronous event loop that re-enters Qt's main event processing while
+        the dialog is open.  During this nested loop, ALL pending Qt events are
+        dispatched immediately — including queued cross-thread signals such as
+        PnpWatcher.deviceArrived, PortScanner.portsFound, and MAVLink message
+        callbacks.  On Python 3.14 / PyQt5 on Windows this reentrant dispatch
+        corrupts internal Qt C++ state → access violation in exec_().
+
+        QFileDialog.open() is truly asynchronous: it shows the dialog and
+        returns to the caller immediately.  The user's file selection is
+        delivered via the fileSelected signal in the NORMAL Qt event loop
+        (QueuedConnection, zero reentrancy, zero nesting).
+        """
+        from PyQt5.QtWidgets import QFileDialog
+        from pathlib import Path
+
+        # Guard — don't open a second dialog if one is already showing
+        if getattr(self, '_file_dialog', None) is not None:
+            try:
+                self._file_dialog.raise_()
+                self._file_dialog.activateWindow()
+                return
+            except RuntimeError:
+                self._file_dialog = None
+
+        default_dir = str(
+            Path.home() / "Documents" / "TihanFly" / "Logs" / "downloaded"
+        )
+
+        dialog = QFileDialog(None)
+        dialog.setOption(QFileDialog.DontUseNativeDialog, True)
+        dialog.setFileMode(QFileDialog.ExistingFile)
+        dialog.setNameFilter("Log files (*.bin *.log *.tlog);;All files (*)")
+        dialog.setDirectory(default_dir)
+        dialog.setWindowTitle("Select DataFlash Log to Review")
+
+        # Wire signals BEFORE open() so they are ready when the dialog closes
+        dialog.fileSelected.connect(self._on_review_file_selected)
+        dialog.finished.connect(self._on_review_dialog_finished)
+
+        # Keep a strong reference so the dialog is not garbage-collected while open
+        self._file_dialog = dialog
+
+        # Non-blocking: returns immediately, no nested event loop
+        dialog.open()
+
+    @pyqtSlot(str)
+    def _on_review_file_selected(self, path):
+        """Delivered on the normal main-thread event loop when the user picks a file."""
+        if path:
+            self.fileDialogResult.emit(path)
+
+    @pyqtSlot(int)
+    def _on_review_dialog_finished(self, result):
+        """Release the dialog reference once it closes (accepted or rejected)."""
+        self._file_dialog = None
+
 
     def __init__(self):
         super().__init__()
@@ -100,6 +167,7 @@ class LogBrowserBackend(QObject):
         self._current_log  = None
         self._log_filepath = ""
         self._parse_worker = None
+        self._file_dialog  = None   # holds open QFileDialog (non-blocking) to prevent GC
 
         # ── Clearing flag ────────────────────────────────────────────────────
         self._clearing = False
@@ -127,19 +195,42 @@ class LogBrowserBackend(QObject):
     @pyqtSlot(str)
     def loadLog(self, filepath):
         self._log_filepath = filepath
-        self._current_log  = None
+        # NOTE: _current_log is reset below, AFTER old worker is cancelled
 
-        if self._parse_worker and self._parse_worker.isRunning():
-            self._parse_worker.quit()
-            self._parse_worker.wait(500)
+        if hasattr(self, '_parse_worker') and self._parse_worker is not None:
+            try:
+                if self._parse_worker.isRunning():
+                    # QThread running custom python code will ignore quit(). We must not delete it.
+                    # Just disconnect it so it doesn't pollute the new log loaded.
+                    try:
+                        self._parse_worker.finished.disconnect()
+                        self._parse_worker.error.disconnect()
+                    except Exception:
+                        pass
+                else:
+                    self._parse_worker.deleteLater()
+            except RuntimeError:
+                # The underlying C++ object was already deleted by worker.deleteLater
+                pass
+            
+            self._parse_worker = None
+
+        # ── Reset current log BEFORE starting the worker so QML sees an
+        # empty messageTypes list immediately (avoids 'model size < 0' Qt warning)
+        self._current_log  = None
+        self.logCleared.emit()          # QML ListView → model: [] cleanly
 
         self.loadProgress.emit("Parsing log…")
 
-        # _ParseWorker no longer receives a shared parser – it creates its own
-        # LogParser instance on the worker thread (see _ParseWorker.run).
         worker = _ParseWorker(filepath)
+        worker.setParent(self) # Prevent premature garbage collection
         worker.finished.connect(self._on_parse_complete)
         worker.error.connect(self.loadError.emit)
+        
+        # Cleanup properly after finished to prevent memory leaks
+        worker.finished.connect(worker.deleteLater)
+        worker.error.connect(lambda e: worker.deleteLater())
+        
         worker.start()
         self._parse_worker = worker
 

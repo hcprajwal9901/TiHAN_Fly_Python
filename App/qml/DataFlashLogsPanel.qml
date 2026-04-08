@@ -1,8 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
-import QtQuick.Dialogs 1.3 as OldDialogs
-import Qt.labs.platform 1.1
 
 Rectangle {
     id: dataFlashLogsPanel
@@ -109,27 +107,20 @@ Rectangle {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // File dialog
+    // File dialog — handled by Python (QFileDialog.DontUseNativeDialog)
     // ════════════════════════════════════════════════════════════════════════
+    // QML FileDialog (both Qt.labs.platform 1.1 and QtQuick.Dialogs 1.3) crash
+    // the app on Windows:
+    //   • Qt.labs.platform 1.1 (native Win32 shell) → RPC_E_DISCONNECTED on MAVLink serial
+    //   • QtQuick.Dialogs 1.3 (DefaultFileDialog.qml) → binding-loop use-after-free in Qt 5.15
+    // The Python slot uses QFileDialog.DontUseNativeDialog (Qt widget, no COM) instead.
 
-    FileDialog {
-        id: logReviewFileDialog
-        title: "Select DataFlash Log to Review"
-        fileMode: FileDialog.OpenFile
-        nameFilters: ["Log files (*.bin *.log *.tlog)", "All files (*)"]
-        folder: StandardPaths.writableLocation(StandardPaths.DocumentsLocation)
-
-        onAccepted: {
-            var raw  = file.toString()
-            // Handle both file:/// (Windows) and file:// (Unix)
-            var path = raw.replace(/^file:\/{2,3}/, "")
+    Connections {
+        target: logBrowser
+        function onFileDialogResult(path) {
             console.log("[DataFlashLogsPanel] Log selected:", path)
             deferredOpenTimer.pendingPath = path
             deferredOpenTimer.start()
-        }
-
-        onRejected: {
-            console.log("[DataFlashLogsPanel] Log selection cancelled")
         }
     }
 
@@ -214,9 +205,9 @@ Rectangle {
             }
 
             onClicked: {
-                // Always open the FileDialog — _openLogBrowserWithPath is
-                // called later via deferredOpenTimer, safely after dialog closes.
-                logReviewFileDialog.open()
+                // Delegate to Python — uses QFileDialog.DontUseNativeDialog (safe on all
+                // Windows configs regardless of MAVLink connection status).
+                if (logBrowser) logBrowser.openFileDialogForReview()
             }
         }
     }
