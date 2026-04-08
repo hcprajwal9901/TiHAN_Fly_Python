@@ -14,7 +14,7 @@ ApplicationWindow {
 
     minimumWidth: 800
     minimumHeight: 600
-    title: "Compass Calibration System"
+    title: languageManager ? languageManager.getText("Compass Calibration") : "Compass Calibration System"
     color: "#f0f2f5"
 
     property bool isDroneConnected: droneModel ? (droneModel.isConnected || false) : false
@@ -22,7 +22,8 @@ ApplicationWindow {
     property var droneModel: null
     property var droneCommander: null
     property bool isCalibrationCompleted: false
-
+    property var languageManager: null
+    
     // ── Color tokens ──────────────────────────────────────────────────────────
     readonly property color primaryColor:    "#2563eb"
     readonly property color successColor:    "#10b981"
@@ -84,8 +85,10 @@ ApplicationWindow {
 
     MessageDialog {
         id: rebootDialog
-        title: "Reboot Required"
-        text: "Calibration completed successfully!\n\nReboot required to apply settings. Reboot now?"
+        title: languageManager ? languageManager.getText("Reboot Required") : "Reboot Required"
+        text: (languageManager ? languageManager.getText("Calibration completed successfully") : "Calibration completed successfully") + 
+              "!\n\n" + 
+              (languageManager ? languageManager.getText("Reboot required to apply settings. Reboot now?") : "Reboot required to apply settings. Reboot now?")
         standardButtons: StandardButton.Yes | StandardButton.No
         onYes: {
             if (isDroneConnected && compassCalibrationModel) {
@@ -96,7 +99,6 @@ ApplicationWindow {
     }
 
     // ── Reboot-in-progress banner ──────────────────────────────────────────────
-    // Shown instead of closing the window so the user gets feedback.
     Rectangle {
         id: rebootBanner
         visible: false
@@ -112,12 +114,15 @@ ApplicationWindow {
             spacing: 12
             Text { text: "🔄"; font.pixelSize: 20 }
             Text {
-                text: "Rebooting autopilot… please wait. The connection indicator will update automatically."
+                text: (languageManager ? languageManager.getText("Rebooting autopilot") : "Rebooting autopilot") + 
+                      "… " + 
+                      (languageManager ? languageManager.getText("please wait") : "please wait") + 
+                      ". " +
+                      (languageManager ? languageManager.getText("The connection indicator will update automatically") : "The connection indicator will update automatically") + "."
                 color: "white"; font.pixelSize: 13; font.weight: Font.Medium
             }
         }
 
-        // Auto-hide after 6 s
         Timer {
             interval: 6000; running: rebootBanner.visible; repeat: false
             onTriggered: rebootBanner.visible = false
@@ -125,7 +130,7 @@ ApplicationWindow {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    //  HEADER
+    //  HEADER with LANGUAGE SELECTOR
     // ═══════════════════════════════════════════════════════════════════════════
     Rectangle {
         id: headerBar
@@ -153,11 +158,69 @@ ApplicationWindow {
 
             ColumnLayout {
                 spacing: 1
-                Text { text: "Compass Calibration System"; color: textPrimary; font.pixelSize: 17; font.weight: Font.DemiBold }
-                Text { text: "Advanced Configuration & Diagnostics";  color: textSecondary; font.pixelSize: 11 }
+                Text { 
+                    text: languageManager ? languageManager.getText("Compass Calibration") : "Compass Calibration System"
+                    color: textPrimary; font.pixelSize: 17; font.weight: Font.DemiBold 
+                }
+                Text { 
+                    text: languageManager ? languageManager.getText("Advanced Configuration & Diagnostics") : "Advanced Configuration & Diagnostics"
+                    color: textSecondary; font.pixelSize: 11 
+                }
             }
 
             Item { Layout.fillWidth: true }
+
+            // Language Selector ComboBox
+            Rectangle {
+                Layout.preferredWidth: 140
+                Layout.preferredHeight: 38
+                radius: 8
+                color: cardColor
+                border.color: borderColor
+                border.width: 1
+
+                ComboBox {
+                    id: languageCombo
+                    anchors.fill: parent
+                    anchors.margins: 0
+                    model: languageManager ? languageManager.availableLanguages : []
+                    textRole: "nativeName"
+                    currentIndex: languageManager ? languageManager.availableLanguages.findIndex(
+                        function(lang) { return lang.code === languageManager.currentLanguage }
+                    ) : 0
+                    
+                    onCurrentIndexChanged: {
+                        if (languageManager && currentIndex >= 0) {
+                            var selectedLang = languageManager.availableLanguages[currentIndex]
+                            languageManager.changeLanguage(selectedLang.code)
+                        }
+                    }
+
+                    background: Rectangle {
+                        color: "transparent"
+                        border.color: "transparent"
+                    }
+
+                    contentItem: Text {
+                        text: languageManager && currentIndex >= 0 
+                              ? languageManager.availableLanguages[currentIndex].nativeName 
+                              : "Language"
+                        color: textPrimary
+                        font.pixelSize: 11
+                        font.weight: Font.Medium
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: 12
+                    }
+
+                    indicator: Text {
+                        x: parent.width - width - 8
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "▼"
+                        color: primaryColor
+                        font.pixelSize: 10
+                    }
+                }
+            }
 
             // Connection pill
             Rectangle {
@@ -177,7 +240,9 @@ ApplicationWindow {
                         }
                     }
                     Text {
-                        text: isDroneConnected ? "Connected" : "Disconnected"
+                        text: isDroneConnected 
+                              ? (languageManager ? languageManager.getText("CONNECTED") : "Connected")
+                              : (languageManager ? languageManager.getText("DISCONNECTED") : "Disconnected")
                         color: isDroneConnected ? "#065f46" : "#991b1b"
                         font.pixelSize: 13; font.weight: Font.Medium
                     }
@@ -215,7 +280,10 @@ ApplicationWindow {
                     anchors.margins: 18
                     spacing: 10
 
-                    Text { text: "System Diagnostics"; color: textPrimary; font.pixelSize: 13; font.weight: Font.DemiBold }
+                    Text { 
+                        text: languageManager ? languageManager.getText("System Diagnostics") : "System Diagnostics"
+                        color: textPrimary; font.pixelSize: 13; font.weight: Font.DemiBold 
+                    }
 
                     RowLayout {
                         spacing: 32
@@ -231,7 +299,10 @@ ApplicationWindow {
                             ]
                             ColumnLayout {
                                 spacing: 3
-                                Text { text: modelData.label; color: textSecondary; font.pixelSize: 10; font.weight: Font.Medium }
+                                Text { 
+                                    text: languageManager ? languageManager.getText(modelData.label) : modelData.label
+                                    color: textSecondary; font.pixelSize: 10; font.weight: Font.Medium 
+                                }
                                 RowLayout {
                                     spacing: 5
                                     Rectangle { width: 6; height: 6; radius: 3; color: modelData.ok ? successColor : textSecondary }
@@ -261,17 +332,22 @@ ApplicationWindow {
                     RowLayout {
                         spacing: 10
                         Rectangle { width: 4; height: 20; color: primaryColor; radius: 2 }
-                        Text { text: "Compass Priority Configuration"; color: textPrimary; font.pixelSize: 15; font.weight: Font.DemiBold }
+                        Text { 
+                            text: languageManager ? languageManager.getText("Compass Priority Configuration") : "Compass Priority Configuration"
+                            color: textPrimary; font.pixelSize: 15; font.weight: Font.DemiBold 
+                        }
                     }
                     Text {
-                        text: "Configure compass priority order (highest priority at top). Each compass is listed with its device ID, bus configuration, and type."
+                        text: languageManager 
+                              ? languageManager.getText("Configure compass priority order (highest priority at top). Each compass is listed with its device ID, bus configuration, and type.")
+                              : "Configure compass priority order (highest priority at top). Each compass is listed with its device ID, bus configuration, and type."
                         color: textSecondary; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true
                     }
 
                     // ── TABLE (horizontal scroll protects data at any window width) ──
                     Rectangle {
                         Layout.fillWidth: true
-                        height: tableInner.height + 2        // +2 for border
+                        height: tableInner.height + 2
                         color: "transparent"
                         border.color: borderColor; border.width: 1; radius: 10
                         clip: true
@@ -286,7 +362,6 @@ ApplicationWindow {
 
                             Column {
                                 id: tableInner
-                                // Always at least as wide as the scroll view, but grows if columns need it
                                 width: Math.max(tableScroll.width, tableMinWidth)
 
                                 // ── HEADER ───────────────────────────────────
@@ -310,14 +385,12 @@ ApplicationWindow {
                                                 { label: "Actions",   w: colActions   }
                                             ]
 
-                                            // Distribute any extra space proportionally to the last column
                                             property real extraW: (tableInner.width - tableMinWidth) / 9
 
                                             Rectangle {
                                                 width: (modelData ? modelData.w : 0) + (parent && parent.extraW !== undefined ? parent.extraW : 0)
                                                 height: 38
                                                 color: "transparent"
-                                                // Right border separator
                                                 Rectangle {
                                                     anchors.top: parent.top
                                                     anchors.bottom: parent.bottom
@@ -329,7 +402,7 @@ ApplicationWindow {
                                                     anchors.right: parent ? parent.right : undefined
                                                     anchors.verticalCenter: parent ? parent.verticalCenter : undefined
                                                     anchors.leftMargin: 10
-                                                    text: modelData ? modelData.label : ""
+                                                    text: languageManager ? languageManager.getText(modelData.label) : modelData.label
                                                     font.pixelSize: 11; font.weight: Font.DemiBold
                                                     color: "#374151"
                                                     elide: Text.ElideRight
@@ -338,7 +411,6 @@ ApplicationWindow {
                                         }
                                     }
 
-                                    // Bottom border under header
                                     Rectangle {
                                         anchors.bottom: parent ? parent.bottom : undefined
                                         width: parent ? parent.width : 0; height: 1; color: borderColor
@@ -354,17 +426,14 @@ ApplicationWindow {
                                         width: tableInner.width
                                         height: 52
 
-                                        // Alternating / highlight colours
                                         color: index === 0 ? "#f0f7ff" : (index % 2 === 0 ? surfaceColor : cardColor)
 
-                                        // Hover highlight
                                         MouseArea {
                                             anchors.fill: parent; hoverEnabled: true
                                             onEntered: rowRect.color = "#e8f0fe"
                                             onExited:  rowRect.color = index === 0 ? "#f0f7ff" : (index % 2 === 0 ? surfaceColor : cardColor)
                                         }
 
-                                        // Bottom separator
                                         Rectangle {
                                             anchors.bottom: parent.bottom
                                             width: parent.width; height: 1
@@ -391,7 +460,6 @@ ApplicationWindow {
                                                         color: index === 0 ? "white" : "#374151"
                                                     }
                                                 }
-                                                // Col separator
                                                 Rectangle {
                                                     anchors.top: parent.top
                                                     anchors.bottom: parent.bottom
@@ -593,8 +661,8 @@ ApplicationWindow {
 
                         RowLayout {
                             anchors.fill: parent
-                        anchors.leftMargin: 16
-                        anchors.rightMargin: 16
+                            anchors.leftMargin: 16
+                            anchors.rightMargin: 16
                             spacing: 6
 
                             Repeater {
@@ -606,7 +674,10 @@ ApplicationWindow {
                                 RowLayout {
                                     spacing: 4
                                     CheckBox { checked: modelData.checked; enabled: isDroneConnected; scale: 0.82 }
-                                    Text { text: modelData.label; color: textPrimary; font.pixelSize: 12 }
+                                    Text { 
+                                        text: languageManager ? languageManager.getText(modelData.label) : modelData.label
+                                        color: textPrimary; font.pixelSize: 12 
+                                    }
                                 }
                             }
 
@@ -620,7 +691,7 @@ ApplicationWindow {
                                 opacity: isDroneConnected ? 1.0 : 0.5
                                 Text {
                                     id: rmLabel; anchors.centerIn: parent
-                                    text: "Remove Missing"
+                                    text: languageManager ? languageManager.getText("Remove Missing") : "Remove Missing"
                                     font.pixelSize: 12; font.weight: Font.Medium
                                     color: isDroneConnected ? dangerColor : textSecondary
                                 }
@@ -653,7 +724,10 @@ ApplicationWindow {
                     RowLayout {
                         spacing: 10
                         Rectangle { width: 4; height: 20; color: primaryColor; radius: 2 }
-                        Text { text: "Calibration Process"; color: textPrimary; font.pixelSize: 15; font.weight: Font.DemiBold }
+                        Text { 
+                            text: languageManager ? languageManager.getText("Calibration Process") : "Calibration Process"
+                            color: textPrimary; font.pixelSize: 15; font.weight: Font.DemiBold 
+                        }
                         Item { Layout.fillWidth: true }
                         Rectangle {
                             width: 140; height: 30; radius: 15
@@ -666,10 +740,10 @@ ApplicationWindow {
                             border.width: 1
                             Text {
                                 anchors.centerIn: parent
-                                text: isCalibrationCompleted ? "✓  COMPLETED"
+                                text: isCalibrationCompleted ? ("✓  " + (languageManager ? languageManager.getText("Calibration completed") : "COMPLETED"))
                                     : (compassCalibrationModel && compassCalibrationModel.calibrationStarted)
-                                        ? "Step " + (compassCalibrationModel.currentOrientation || 1) + " of 6"
-                                    : "Ready"
+                                        ? ("Step " + (compassCalibrationModel.currentOrientation || 1) + " of 6")
+                                    : (languageManager ? languageManager.getText("Ready") : "Ready")
                                 color: isCalibrationCompleted ? "#065f46"
                                      : (compassCalibrationModel && compassCalibrationModel.calibrationStarted) ? "#92400e"
                                      : textSecondary
@@ -691,7 +765,9 @@ ApplicationWindow {
                                    : "#9ca3af"
                             Text {
                                 anchors.centerIn: parent
-                                text: isCalibrationCompleted ? "✓  Reboot & Apply" : "Start Calibration"
+                                text: isCalibrationCompleted 
+                                      ? ("✓  " + (languageManager ? languageManager.getText("Reboot & Apply") : "Reboot & Apply"))
+                                      : (languageManager ? languageManager.getText("Start Calibration") : "Start Calibration")
                                 color: "white"; font.pixelSize: 13; font.weight: Font.DemiBold
                             }
                             MouseArea {
@@ -712,7 +788,11 @@ ApplicationWindow {
                                     compassCalibrationModel.calibrationStarted && !isCalibrationCompleted)
                                    ? (acceptArea.containsMouse ? "#059669" : successColor)
                                    : "#9ca3af"
-                            Text { anchors.centerIn: parent; text: "Accept Calibration"; color: "white"; font.pixelSize: 13; font.weight: Font.DemiBold }
+                            Text { 
+                                anchors.centerIn: parent
+                                text: languageManager ? languageManager.getText("Accept Calibration") : "Accept Calibration"
+                                color: "white"; font.pixelSize: 13; font.weight: Font.DemiBold 
+                            }
                             MouseArea {
                                 id: acceptArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                 enabled: isDroneConnected && compassCalibrationModel &&
@@ -727,7 +807,11 @@ ApplicationWindow {
                                     compassCalibrationModel.calibrationStarted && !isCalibrationCompleted)
                                    ? (cancelArea.containsMouse ? "#dc2626" : dangerColor)
                                    : "#9ca3af"
-                            Text { anchors.centerIn: parent; text: "Cancel"; color: "white"; font.pixelSize: 13; font.weight: Font.DemiBold }
+                            Text { 
+                                anchors.centerIn: parent
+                                text: languageManager ? languageManager.getText("Cancel") : "Cancel"
+                                color: "white"; font.pixelSize: 13; font.weight: Font.DemiBold 
+                            }
                             MouseArea {
                                 id: cancelArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                 enabled: isDroneConnected && compassCalibrationModel &&
@@ -744,7 +828,10 @@ ApplicationWindow {
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: borderColor }
 
-                    Text { text: "Magnetometer Progress"; color: textPrimary; font.pixelSize: 13; font.weight: Font.DemiBold }
+                    Text { 
+                        text: languageManager ? languageManager.getText("Magnetometer Progress") : "Magnetometer Progress"
+                        color: textPrimary; font.pixelSize: 13; font.weight: Font.DemiBold 
+                    }
 
                     // ── Progress bars ─────────────────────────────────────────
                     Repeater {
@@ -764,7 +851,10 @@ ApplicationWindow {
 
                             // Label
                             Text {
-                                text: modelData.name; color: textPrimary
+                                text: languageManager 
+                                      ? languageManager.getText(modelData.name)
+                                      : modelData.name
+                                color: textPrimary
                                 Layout.preferredWidth: 120; font.pixelSize: 12; font.weight: Font.Medium
                             }
 
@@ -774,7 +864,6 @@ ApplicationWindow {
                                 color: modelData.trackColor
                                 radius: 6; clip: true
 
-                                // Simple solid fill bar
                                 Rectangle {
                                     width: parent.width * Math.max(0, Math.min(1, currentProgress / 100.0))
                                     height: parent.height
@@ -783,7 +872,6 @@ ApplicationWindow {
                                     Behavior on width { NumberAnimation { duration: 200 } }
                                 }
 
-                                // Percentage label (always on top)
                                 Text {
                                     anchors.centerIn: parent
                                     text: { var p = currentProgress; return isNaN(p) ? "—" : Math.round(p) + "%" }
@@ -791,7 +879,6 @@ ApplicationWindow {
                                     font.pixelSize: 11; font.weight: Font.DemiBold
                                 }
                             }
-
 
                             // Status dot
                             Rectangle {
@@ -826,7 +913,10 @@ ApplicationWindow {
                     // Config options row
                     RowLayout {
                         spacing: 14
-                        Text { text: "Fitness Level:"; color: textPrimary; font.pixelSize: 12; font.weight: Font.Medium }
+                        Text { 
+                            text: (languageManager ? languageManager.getText("Fitness Level") : "Fitness Level") + ":"
+                            color: textPrimary; font.pixelSize: 12; font.weight: Font.Medium 
+                        }
                         ComboBox {
                             model: ["Strict", "Default", "Relaxed", "Very Relaxed"]; currentIndex: 1
                             enabled: isDroneConnected && (!compassCalibrationModel || !compassCalibrationModel.calibrationStarted)
@@ -838,7 +928,10 @@ ApplicationWindow {
                         }
                         Item { Layout.fillWidth: true }
                         CheckBox { checked: true; enabled: isDroneConnected; scale: 0.83 }
-                        Text { text: "Auto-retry on failure"; color: textPrimary; font.pixelSize: 12 }
+                        Text { 
+                            text: languageManager ? languageManager.getText("Auto-retry on failure") : "Auto-retry on failure"
+                            color: textPrimary; font.pixelSize: 12 
+                        }
                     }
 
                     // Status message
@@ -850,8 +943,8 @@ ApplicationWindow {
 
                         RowLayout {
                             anchors.fill: parent
-                        anchors.margins: 14
-                        spacing: 12
+                            anchors.margins: 14
+                            spacing: 12
                             Rectangle {
                                 width: 4; height: parent.height; radius: 2
                                 color: isCalibrationCompleted ? successColor : primaryColor
@@ -859,10 +952,10 @@ ApplicationWindow {
                             Text {
                                 Layout.fillWidth: true
                                 text: isCalibrationCompleted
-                                    ? "✓  Calibration completed successfully! Click 'Reboot & Apply' to finalize changes."
-                                    : compassCalibrationModel
-                                        ? (compassCalibrationModel.statusText || "Ready to begin calibration process")
-                                        : "Ready to begin calibration process"
+                                    ? ("✓  " + (languageManager ? languageManager.getText("Calibration completed successfully! Click 'Reboot & Apply' to finalize changes.") : "Calibration completed successfully! Click 'Reboot & Apply' to finalize changes."))
+                                    : (compassCalibrationModel
+                                        ? (compassCalibrationModel.statusText || (languageManager ? languageManager.getText("Ready to begin calibration process") : "Ready to begin calibration process"))
+                                        : (languageManager ? languageManager.getText("Ready to begin calibration process") : "Ready to begin calibration process"))
                                 color: isCalibrationCompleted ? "#166534" : textSecondary
                                 font.pixelSize: 12; wrapMode: Text.WordWrap; verticalAlignment: Text.AlignVCenter
                             }
@@ -882,7 +975,10 @@ ApplicationWindow {
                     anchors.fill: parent
                     anchors.margins: 22
                     spacing: 14
-                    Text { text: "System Actions"; color: textPrimary; font.pixelSize: 14; font.weight: Font.DemiBold }
+                    Text { 
+                        text: languageManager ? languageManager.getText("System Actions") : "System Actions"
+                        color: textPrimary; font.pixelSize: 14; font.weight: Font.DemiBold 
+                    }
 
                     RowLayout {
                         spacing: 10
@@ -890,7 +986,11 @@ ApplicationWindow {
                         Rectangle {
                             width: 155; height: 38; radius: 8
                             color: isDroneConnected ? (rbArea.containsMouse ? "#0891b2" : "#06b6d4") : "#9ca3af"
-                            Text { anchors.centerIn: parent; text: "Reboot Ardupilot"; color: "white"; font.pixelSize: 12; font.weight: Font.DemiBold }
+                            Text { 
+                                anchors.centerIn: parent
+                                text: languageManager ? languageManager.getText("Reboot Ardupilot") : "Reboot Ardupilot"
+                                color: "white"; font.pixelSize: 12; font.weight: Font.DemiBold 
+                            }
                             MouseArea {
                                 id: rbArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                 enabled: isDroneConnected
@@ -901,7 +1001,11 @@ ApplicationWindow {
                         Rectangle {
                             width: 175; height: 38; radius: 8
                             color: isDroneConnected ? (lvcArea.containsMouse ? "#ea580c" : "#f97316") : "#9ca3af"
-                            Text { anchors.centerIn: parent; text: "Large Vehicle MagCal"; color: "white"; font.pixelSize: 12; font.weight: Font.DemiBold }
+                            Text { 
+                                anchors.centerIn: parent
+                                text: languageManager ? languageManager.getText("Large Vehicle MagCal") : "Large Vehicle MagCal"
+                                color: "white"; font.pixelSize: 12; font.weight: Font.DemiBold 
+                            }
                             MouseArea {
                                 id: lvcArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                 enabled: isDroneConnected

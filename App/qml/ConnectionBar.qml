@@ -244,7 +244,8 @@ Rectangle {
         var component = Qt.createComponent("AccelCalibration.qml")
         if (component.status === Component.Ready) {
             root.calibrationWindow = component.createObject(null, {
-                "calibrationModel": calibrationModel
+                "calibrationModel": calibrationModel,
+                "languageManager": root.languageManager
             })
             if (root.calibrationWindow) {
                 root.calibrationWindow.closing.connect(function() { root.calibrationWindow = null })
@@ -263,7 +264,8 @@ Rectangle {
             root.calibrationWindow = component.createObject(null, {
                 "droneModel":          droneModel,
                 "droneCommander":      droneCommander,
-                "escCalibrationModel": escCalibrationModel
+                "escCalibrationModel": escCalibrationModel,
+                 "languageManager": root.languageManager
             })
             if (root.calibrationWindow) {
                 root.calibrationWindow.closing.connect(function() { root.calibrationWindow = null })
@@ -280,7 +282,8 @@ Rectangle {
         var component = Qt.createComponent("radio.qml")
         if (component.status === Component.Ready) {
             root.calibrationWindow = component.createObject(null, {
-                "radioCalibrationModel": radioCalibrationModel
+                "radioCalibrationModel": radioCalibrationModel,
+                 "languageManager": root.languageManager
             })
             if (root.calibrationWindow) {
                 root.calibrationWindow.closing.connect(function() { root.calibrationWindow = null })
@@ -322,7 +325,8 @@ Rectangle {
         root.calibrationWindow = component.createObject(null, {
             "compassCalibrationModel": compassCalibrationModel,
             "droneModel":              droneModel,
-            "droneCommander":          droneCommander
+            "droneCommander":          droneCommander,
+             "languageManager": root.languageManager
         })
         if (root.calibrationWindow) {
             root.calibrationWindow.closing.connect(function() { root.calibrationWindow = null })
