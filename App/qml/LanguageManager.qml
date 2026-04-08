@@ -1,4 +1,4 @@
-// Complete Updated LanguageManager.qml with all translations
+// Complete Updated LanguageManager.qml with CALIBRATION INSTRUCTIONS
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 
@@ -7,6 +7,9 @@ QtObject {
     
     // Current language property
     property string currentLanguage: "en"
+    
+    // Signal when language changes (for AccelCalibration.qml to listen)
+   
     
     // Available languages
     property var availableLanguages: [
@@ -18,7 +21,119 @@ QtObject {
     
     // Translation strings object
     property var translations: ({
+        // ═════════════════════════════════════════════════════════════════════
+        // CALIBRATION INSTRUCTIONS - ACCELEROMETER
+        // ═════════════════════════════════════════════════════════════════════
+        "Place vehicle level": {
+            "en": "Place vehicle level",
+            "ta": "வாகனத்தை தட்டையாக வைக்கவும்",
+            "hi": "वाहन को समतल रखें",
+            "te": "వాహనాన్ని సమతలంగా ఉంచండి"
+        },
+        "Rotate vehicle": {
+            "en": "Rotate vehicle",
+            "ta": "வாகனத்தை சுழற்றவும்",
+            "hi": "वाहन को घुमाएं",
+            "te": "వాహనాన్ని తిప్పండి"
+        },
+        "Hold vehicle steady": {
+            "en": "Hold vehicle steady",
+            "ta": "வாகனத்தை நிலையாக வைக்கவும்",
+            "hi": "वाहन को स्थिर रखें",
+            "te": "వాహనాన్ని స్థిరంగా ఉంచండి"
+        },
+        "Calibration in progress": {
+            "en": "Calibration in progress",
+            "ta": "அளவீடு நடந்து கொண்டிருக்கிறது",
+            "hi": "कैलिब्रेशन प्रगति में है",
+            "te": "కాలిబ్రేషన్ ప్రవర్తనలో ఉంది"
+        },
+        "Waiting for next step": {
+            "en": "Waiting for next step",
+            "ta": "அடுத்த படிக்காக காத்திருக்கிறது",
+            "hi": "अगले चरण की प्रतीक्षा कर रहे हैं",
+            "te": "తదుపరి దశ కోసం వేచి ఉన్నారు"
+        },
+        "Calibration complete": {
+            "en": "Calibration complete",
+            "ta": "அளவீடு முடிந்துவிட்டது",
+            "hi": "कैलिब्रेशन पूर्ण",
+            "te": "కాలిబ్రేషన్ పూర్తయింది"
+        },
+        "Place the vehicle on a level surface": {
+            "en": "Place the vehicle on a level surface",
+            "ta": "வாகனத்தை தட்டையான மேற்பரப்பில் வைக்கவும்",
+            "hi": "वाहन को समतल सतह पर रखें",
+            "te": "వాహనాన్ని సమతల ఉపరితలంపై ఉంచండి"
+        },
+        "Rotate the vehicle slowly": {
+            "en": "Rotate the vehicle slowly",
+            "ta": "வாகனத்தை천천히 சுழற்றவும்",
+            "hi": "वाहन को धीरे-धीरे घुमाएं",
+            "te": "వాహనాన్ని నెమ్మదిగా తిప్పండి"
+        },
+        "Keep the vehicle steady": {
+            "en": "Keep the vehicle steady",
+            "ta": "வாகனத்தை நிலையாக வைத்திருக்கவும்",
+            "hi": "वाहन को स्थिर रखें",
+            "te": "వాహనాన్ని స్థిరంగా ఉంచండి"
+        },
+        "Position 1: Level": {
+            "en": "Position 1: Level",
+            "ta": "நிலை 1: தட்டை",
+            "hi": "स्थिति 1: समतल",
+            "te": "స్థితి 1: సమతల"
+        },
+        "Position 2: Rotate": {
+            "en": "Position 2: Rotate",
+            "ta": "நிலை 2: சுழற்று",
+            "hi": "स्थिति 2: घुमाएं",
+            "te": "స్థితి 2: తిప్పండి"
+        },
+        "Position 3: Rotate again": {
+            "en": "Position 3: Rotate again",
+            "ta": "நிலை 3: மீண்டும் சுழற்று",
+            "hi": "स्थिति 3: फिर घुमाएं",
+            "te": "స్థితి 3: మళ్లీ తిప్పండి"
+        },
+        "Position 4: Rotate again": {
+            "en": "Position 4: Rotate again",
+            "ta": "நிலை 4: மீண்டும் சுழற்று",
+            "hi": "स्थिति 4: फिर घुमाएं",
+            "te": "స్థితి 4: మళ్లీ తిప్పండి"
+        },
+        "Position 5: Rotate again": {
+            "en": "Position 5: Rotate again",
+            "ta": "நிலை 5: மீண்டும் சுழற்று",
+            "hi": "स्थिति 5: फिर घुमाएं",
+            "te": "స్థితి 5: మళ్లీ తిప్పండి"
+        },
+        "Position 6: Rotate again": {
+            "en": "Position 6: Rotate again",
+            "ta": "நிலை 6: மீண்டும் சுழற்று",
+            "hi": "स्थिति 6: फिर घुमाएं",
+            "te": "స్థితి 6: మళ్లీ తిప్పండి"
+        },
+
+        // ═════════════════════════════════════════════════════════════════════
+        // CALIBRATION RESULTS
+        // ═════════════════════════════════════════════════════════════════════
+        "Calibration completed successfully": {
+            "en": "Calibration completed successfully ✔",
+            "ta": "அளவீடு வெற்றிகரமாக முடிந்தது ✔",
+            "hi": "कैलिब्रेशन सफलतापूर्वक पूर्ण हुआ ✔",
+            "te": "కాలిబ్రేషన్ విజయవంతంగా పూర్తయింది ✔"
+        },
+        "Calibration failed": {
+            "en": "Calibration failed ✖",
+            "ta": "அளவீடு தோல்வியடைந்தது ✖",
+            "hi": "कैलिब्रेशन विफल ✖",
+            "te": "కాలిబ్రేషన్ విఫలమైంది ✖"
+        },
+
+        // ═════════════════════════════════════════════════════════════════════
         // Connection Bar
+        // ═════════════════════════════════════════════════════════════════════
         "CONNECT": {
             "en": "CONNECT",
             "ta": "இணைக்க",
@@ -44,7 +159,9 @@ QtObject {
             "te": "డిస్‌కనెక్ట్ చేయబడింది"
         },
         
+        // ═════════════════════════════════════════════════════════════════════
         // Control Buttons
+        // ═════════════════════════════════════════════════════════════════════
         "TAKEOFF": {
             "en": "TAKEOFF",
             "ta": "புறப்பாடு",
@@ -70,7 +187,9 @@ QtObject {
             "te": "టి-నారి"
         },
         
+        // ═════════════════════════════════════════════════════════════════════
         // ARM/DISARM States
+        // ═════════════════════════════════════════════════════════════════════
         "ARMED": {
             "en": "ARMED",
             "ta": "ஆயுதம் கொண்ட",
@@ -121,7 +240,7 @@ QtObject {
         },
         "Drone Disarmed Successfully": {
             "en": "Drone Disarmed Successfully",
-            "ta": "ட்ரோன் வெற்றிகரமாக ஆयுதம் நீக்கப்பட்டது",
+            "ta": "ட்ரோன் வெற்றிகரமாக ஆயுதம் நீக்கப்பட்டது",
             "hi": "ड्रोन सफलतापूर्वक निरस्त्र",
             "te": "డ్రోన్ విజయవంతంగా నిరాయుధీకరించబడింది"
         },
@@ -138,7 +257,9 @@ QtObject {
             "te": "మొదట డ్రోన్‌కు కనెక్ట్ చేయండి"
         },
         
+        // ═════════════════════════════════════════════════════════════════════
         // Menu Items
+        // ═════════════════════════════════════════════════════════════════════
         "Status": {
             "en": "Status",
             "ta": "நிலை",
@@ -153,7 +274,7 @@ QtObject {
         },
         "Fail Safe": {
             "en": "Fail Safe",
-            "ta": "பாதுகாப்பு தோல்வி",
+            "ta": "பாதுகாப்பு தோல్வி",
             "hi": "फेल सेफ",
             "te": "ఫెయిల్ సేఫ్"
         },
@@ -194,7 +315,9 @@ QtObject {
             "te": "కాలిబ్రేషన్స్"
         },
         
+        // ═════════════════════════════════════════════════════════════════════
         // Mission Upload Section
+        // ═════════════════════════════════════════════════════════════════════
         "Mission Upload": {
             "en": "Mission Upload",
             "ta": "பணி பதிவேற்றம்",
@@ -220,7 +343,9 @@ QtObject {
             "te": "క్లియర్"
         },
         
+        // ═════════════════════════════════════════════════════════════════════
         // Weather Dashboard
+        // ═════════════════════════════════════════════════════════════════════
         "Weather Info": {
             "en": "Weather Info",
             "ta": "வானிலை தகவல்",
@@ -295,7 +420,7 @@ QtObject {
         },
         "High Temperature Warning": {
             "en": "High Temperature Warning",
-            "ta": "அதிக வெப்பநிலை எச்சரிக்கை",
+            "ta": "அதிக வெப்பநिலை எச்சரிக்கை",
             "hi": "उच्च तापमान चेतावनी",
             "te": "అధిక ఉష్ణోగ్రత హెచ్చరిక"
         },
@@ -306,10 +431,12 @@ QtObject {
             "te": "అధిక గాలి హెచ్చరిక"
         },
         
+        // ═════════════════════════════════════════════════════════════════════
         // Waypoint Dashboard
+        // ═════════════════════════════════════════════════════════════════════
         "Command Editor": {
             "en": "Command Editor",
-            "ta": "கட்டளை திருத்தி",
+            "ta": "கட్டளை திருத்தி",
             "hi": "कमांड एडिटर",
             "te": "కమాండ్ ఎడిటర్"
         },
@@ -440,7 +567,9 @@ QtObject {
             "te": "మిషన్ కమాండ్ జాబితా"
         },
         
+        // ═════════════════════════════════════════════════════════════════════
         // Status Panel
+        // ═════════════════════════════════════════════════════════════════════
         "Ground Speed": {
             "en": "Ground Speed",
             "ta": "தரை வேகம்",
@@ -472,7 +601,9 @@ QtObject {
             "te": "MAV కు దూరం"
         },
         
+        // ═════════════════════════════════════════════════════════════════════
         // Units
+        // ═════════════════════════════════════════════════════════════════════
         "m": {
             "en": "m",
             "ta": "மீ",
@@ -492,7 +623,9 @@ QtObject {
             "te": "డిగ్రీ"
         },
 
+        // ═════════════════════════════════════════════════════════════════════
         // Additional Labels
+        // ═════════════════════════════════════════════════════════════════════
         "RTL": {
             "en": "RTL",
             "ta": "திரும்ப",
@@ -524,7 +657,9 @@ QtObject {
             "te": "నిరాయుధం"
         },
 
-        // Flight Modes - All modes with translations
+        // ═════════════════════════════════════════════════════════════════════
+        // Flight Modes
+        // ═════════════════════════════════════════════════════════════════════
         "STABILIZE": {
             "en": "STABILIZE",
             "ta": "நிலைப்படுத்து",
@@ -593,7 +728,7 @@ QtObject {
         },
         "FLIP": {
             "en": "FLIP",
-            "ta": "புரట்டு",
+            "ta": "புரட்டு",
             "hi": "फ्लिप",
             "te": "ఫ్లిప్"
         },
@@ -623,13 +758,13 @@ QtObject {
         },
         "AVOID_ADSB": {
             "en": "AVOID ADSB",
-            "ta": "ADSB தவির்",
+            "ta": "ADSB தவிர்",
             "hi": "एडीएसबी बचें",
             "te": "ADSB ఎవాయిడ్"
         },
         "GUIDED_NOGPS": {
             "en": "GUIDED NO GPS",
-            "ta": "GPS இல्லামल् வழిகாட्டल्",
+            "ta": "GPS இல்லாமல் வழிகாட்டல்",
             "hi": "गाइडेड बिना जीपीएस",
             "te": "GPS లేకుండా గైడెడ్"
         },
@@ -641,7 +776,7 @@ QtObject {
         },
         "FLOWHOLD": {
             "en": "FLOWHOLD",
-            "ta": "ஃப்लோ ஹோல்ட்",
+            "ta": "ஃப்லோ ஹோல்ட்",
             "hi": "फ्लोहोल्ड",
             "te": "ఫ్లోహోల్డ్"
         },
@@ -676,7 +811,9 @@ QtObject {
             "te": "ఆటో RTL"
         },
 
+        // ═════════════════════════════════════════════════════════════════════
         // Takeoff Dialog
+        // ═════════════════════════════════════════════════════════════════════
         "Takeoff Configuration": {
             "en": "Takeoff Configuration",
             "ta": "புறப்பாடு உள்ளமைவு",
@@ -712,10 +849,336 @@ QtObject {
             "ta": "புறப்பாடு தொடங்கு",
             "hi": "टेकऑफ शुरू करें",
             "te": "టేకాఫ్ ప్రారంభించండి"
+        },
+        "Accelerometer Calibration": {
+            "en": "Accelerometer Calibration",
+            "ta": "முடுக்கமானி அளவீடு",
+            "hi": "एक्सेलेरोमीटर कैलिब्रेशन",
+            "te": "యాక్సిలరోమీటర్ కాలిబ్రేషన్"
+        },
+        "Press START to begin calibration.": {
+            "en": "Press START to begin calibration.",
+            "ta": "அளவீட்டைத் தொடங்க START அழுத்தவும்.",
+            "hi": "कैलिब्रेशन शुरू करने के लिए START दबाएं।",
+            "te": "కాలిబ్రేషన్ ప్రారంభించడానికి START నొక్కండి."
+        },
+        "Step": {
+            "en": "Step",
+            "ta": "படி",
+            "hi": "चरण",
+            "te": "దశ"
+        },
+        "Start": {
+            "en": "Start",
+            "ta": "தொடங்கு",
+            "hi": "शुरू करें",
+            "te": "ప్రారంభించండి"
+        },
+        "Next": {
+            "en": "Next",
+            "ta": "அடுத்து",
+            "hi": "अगला",
+            "te": "తదుపరి"
+        },
+"Compass Calibration": {
+            "en": "Compass Calibration System",
+            "ta": "திசைகாட்டி அளவீடு முறை",
+            "hi": "कंपास कैलिब्रेशन प्रणाली",
+            "te": "కంపాస్ కాలిబ్రేషన్ వ్యవస్థ"
+        },
+        "Advanced Configuration & Diagnostics": {
+            "en": "Advanced Configuration & Diagnostics",
+            "ta": "மேம்பட்ட உள்ளமைவு & நோய் நির్ధారணம்",
+            "hi": "उन्नत कॉन्फ़िगरेशन और डायग्नोस्टिक्स",
+            "te": "అందుబాటు కాన్ఫిగరేషన్ & ఆరోగ్య నిర్ధారణ"
+        },
+        "System Diagnostics": {
+            "en": "System Diagnostics",
+            "ta": "அமைப்பு நோய் நির్ధారணம்",
+            "hi": "सिस्टम डायग्नोस्टिक्स",
+            "te": "సిస్టమ్ డయాగ్నస్టిక్‌లు"
+        },
+        "Model Status": {
+            "en": "Model Status",
+            "ta": "மாதிரி நிலை",
+            "hi": "मॉडल स्थिति",
+            "te": "మోడల్ స్థితి"
+        },
+        "Calibration": {
+            "en": "Calibration",
+            "ta": "அளவீடு",
+            "hi": "कैलिब्रेशन",
+            "te": "కాలిబ్రేషన్"
+        },
+        "Mag 1": {
+            "en": "Magnetometer 1",
+            "ta": "காந்தமானி 1",
+            "hi": "चुंबकत्वमापी 1",
+            "te": "మ్యాగ్నెటోమీటర్ 1"
+        },
+        "Mag 2": {
+            "en": "Magnetometer 2",
+            "ta": "காந்தமானி 2",
+            "hi": "चुंबकत्वमापी 2",
+            "te": "మ్యాగ్నెటోమీటర్ 2"
+        },
+        "Mag 3": {
+            "en": "Magnetometer 3",
+            "ta": "காந்தமானி 3",
+            "hi": "चुंबकत्वमापी 3",
+            "te": "మ్యాగ్నెటోమీటర్ 3"
+        },
+        "Compass Priority Configuration": {
+            "en": "Compass Priority Configuration",
+            "ta": "திசைகாட்டி முன்னுரிமை உள்ளமைவு",
+            "hi": "कंपास प्राथमिकता कॉन्फ़िगरेशन",
+            "te": "కంపాస్ ప్రాధాన్యత కాన్ఫిగరేషన్"
+        },
+        "Configure compass priority order (highest priority at top). Each compass is listed with its device ID, bus configuration, and type.": {
+            "en": "Configure compass priority order (highest priority at top). Each compass is listed with its device ID, bus configuration, and type.",
+            "ta": "திசைகாட்டி முன்னுரிமை வரிசையை உள்ளமைக்கவும் (மிக உயர்ந்த முன்னுரிமை மேலே). ஒவ்வொரு திசைகாட்டியும் அதன் சாதன ID, பஸ் உள்ளமைவு மற்றும் வகையுடன் பட்டியலிடப்பட்டுள்ளது.",
+            "hi": "कंपास प्राथमिकता क्रम कॉन्फ़िगर करें (शीर्ष पर उच्चतम प्राथमिकता)। प्रत्येक कंपास अपने डिवाइस ID, बस कॉन्फ़िगरेशन और प्रकार के साथ सूचीबद्ध है।",
+            "te": "కంపాస్ ప్రాధాన్యత క్రమాన్ని కాన్ఫిగర్ చేయండి (టాప్‌లో అత్యధిక ప్రాధాన్యత). ప్రతి కంపాస్ దాని పరికర ID, బస్ కాన్ఫిగరేషన్ మరియు రకంతో జాబితా చేయబడింది."
+        },
+        "Priority": {
+            "en": "Priority",
+            "ta": "முன்னுரிமை",
+            "hi": "प्राथमिकता",
+            "te": "ప్రాధాన్యత"
+        },
+        "DevID": {
+            "en": "Device ID",
+            "ta": "சாதன ID",
+            "hi": "डिवाइस ID",
+            "te": "పరికర ID"
+        },
+        "Bus Type": {
+            "en": "Bus Type",
+            "ta": "பஸ் வகை",
+            "hi": "बस प्रकार",
+            "te": "బస్ రకం"
+        },
+        "Bus": {
+            "en": "Bus",
+            "ta": "பஸ்",
+            "hi": "बस",
+            "te": "బస్"
+        },
+        "Address": {
+            "en": "Address",
+            "ta": "முகவரி",
+            "hi": "पता",
+            "te": "చిరునామా"
+        },
+        "Dev Type": {
+            "en": "Device Type",
+            "ta": "சாதன வகை",
+            "hi": "डिवाइस प्रकार",
+            "te": "పరికర రకం"
+        },
+        "Missing": {
+            "en": "Missing",
+            "ta": "காணாமல் போனது",
+            "hi": "लापता",
+            "te": "లేనిది"
+        },
+        "External": {
+            "en": "External",
+            "ta": "வெளிப்புற",
+            "hi": "बाहरी",
+            "te": "బాహ్య"
+        },
+        "Actions": {
+            "en": "Actions",
+            "ta": "நடவடிக்கைகள்",
+            "hi": "कार्यों",
+            "te": "చర్యలు"
+        },
+        "Use Compass 1": {
+            "en": "Use Compass 1",
+            "ta": "திசைகாட்டி 1 ஐ பயன்படுத்தவும்",
+            "hi": "कंपास 1 का उपयोग करें",
+            "te": "కంపాస్ 1 ను ఉపయోగించండి"
+        },
+        "Use Compass 2": {
+            "en": "Use Compass 2",
+            "ta": "திசைகாட்டி 2 ஐ பயன்படுத்தவும்",
+            "hi": "कंपास 2 का उपयोग करें",
+            "te": "కంపాస్ 2 ను ఉపయోగించండి"
+        },
+        "Use Compass 3": {
+            "en": "Use Compass 3",
+            "ta": "திசைகாட்டி 3 ஐ பயன்படுத்தவும்",
+            "hi": "कंपास 3 का उपयोग करें",
+            "te": "కంపాస్ 3 ను ఉపయోగించండి"
+        },
+        "Remove Missing": {
+            "en": "Remove Missing",
+            "ta": "காணாமல் போனதை நீக்கு",
+            "hi": "लापता निकालें",
+            "te": "లేనిది తీసివేయండి"
+        },
+        "Calibration Process": {
+            "en": "Calibration Process",
+            "ta": "அளவீடு செயல்முறை",
+            "hi": "कैलिब्रेशन प्रक्रिया",
+            "te": "కాలిబ్రేషన్ ప్రక్రియ"
+        },
+        "Ready": {
+            "en": "Ready",
+            "ta": "தயாரான",
+            "hi": "तैयार",
+            "te": "సిద్ధమైనది"
+        },
+        "Start Calibration": {
+            "en": "Start Calibration",
+            "ta": "அளவீடு தொடங்கு",
+            "hi": "कैलिब्रेशन शुरू करें",
+            "te": "కాలిబ్రేషన్ ప్రారంభించండి"
+        },
+        "Accept Calibration": {
+            "en": "Accept Calibration",
+            "ta": "அளவீடு ஏற்கவும்",
+            "hi": "कैलिब्रेशन स्वीकार करें",
+            "te": "కాలిబ్రేషన్‌ను ఆమోదించండి"
+        },
+        "Cancel": {
+            "en": "Cancel",
+            "ta": "ரத்து செய்",
+            "hi": "रद्द करें",
+            "te": "రద్దు చేయండి"
+        },
+        "Calibration completed": {
+            "en": "COMPLETED",
+            "ta": "முடிந்தது",
+            "hi": "पूर्ण",
+            "te": "పూర్తయింది"
+        },
+        "Magnetometer Progress": {
+            "en": "Magnetometer Progress",
+            "ta": "காந்தமானி முன்னேற்றம்",
+            "hi": "चुंबकत्वमापी प्रगति",
+            "te": "మ్యాగ్నెటోమీటర్ పురోగతి"
+        },
+        "Magnetometer 1": {
+            "en": "Magnetometer 1",
+            "ta": "காந்தமானி 1",
+            "hi": "चुंबकत्वमापी 1",
+            "te": "మ్యాగ్నెటోమీటర్ 1"
+        },
+        "Magnetometer 2": {
+            "en": "Magnetometer 2",
+            "ta": "காந்தமானி 2",
+            "hi": "चुंबकत्वमापी 2",
+            "te": "మ్యాగ్నెటోమీటర్ 2"
+        },
+        "Magnetometer 3": {
+            "en": "Magnetometer 3",
+            "ta": "காந்தமானி 3",
+            "hi": "चुंबकत्वमापी 3",
+            "te": "మ్యాగ్నెటోమీటర్ 3"
+        },
+        "Fitness Level": {
+            "en": "Fitness Level",
+            "ta": "உপযுक்தता நிலை",
+            "hi": "फिटनेस स्तर",
+            "te": "ఫిట్‌నెస్ స్థితి"
+        },
+        "Auto-retry on failure": {
+            "en": "Auto-retry on failure",
+            "ta": "தோல்வியில் தானியங்கு மீண்டும் முயற்சி",
+            "hi": "विफलता पर स्वचालित पुनः प्रयास",
+            "te": "విఫలతపై స్వయం-పునः ప్రయత్నం"
+        },
+        "Calibration completed successfully! Click 'Reboot & Apply' to finalize changes.": {
+            "en": "Calibration completed successfully! Click 'Reboot & Apply' to finalize changes.",
+            "ta": "அளவீடு வெற்றிகரமாக முடிந்தது! परिवर्तनों को अंतिम रूप देने के लिए 'रিबूट और लागू करें' पर क्लिक करें।",
+            "hi": "कैलिब्रेशन सफलतापूर्वक पूर्ण हुआ! परिवर्तनों को अंतिम रूप देने के लिए 'रिबूट और लागू करें' पर क्लिक करें।",
+            "te": "కాలిబ్రేషన్ విజయవంతంగా పూర్తయింది! మార్పులను చూడటానికి 'రీబూట్ & అప్లై'ను క్లిక్ చేయండి."
+        },
+        "Ready to begin calibration process": {
+            "en": "Ready to begin calibration process",
+            "ta": "அளவீடு செயல்முறை தொடங்க தயாரான",
+            "hi": "कैलिब्रेशन प्रक्रिया शुरू करने के लिए तैयार",
+            "te": "కాలిబ్రేషన్ ప్రక్రియ ప్రారంభించడానికి సిద్ధమైనది"
+        },
+        "System Actions": {
+            "en": "System Actions",
+            "ta": "அமைப்பு நடவடிக்கைகள்",
+            "hi": "सिस्टम कार्रवाई",
+            "te": "సిస్టమ్ చర్యలు"
+        },
+        "Reboot Ardupilot": {
+            "en": "Reboot Ardupilot",
+            "ta": "Ardupilot ஐ மீண்டும் தொடங்கு",
+            "hi": "Ardupilot को पुनः प्रारंभ करें",
+            "te": "Ardupilot ను పునः ప్రారంభించండి"
+        },
+        "Large Vehicle MagCal": {
+            "en": "Large Vehicle MagCal",
+            "ta": "பெரிய வாহன MagCal",
+            "hi": "बड़े वाहन MagCal",
+            "te": "పెద్ద వాహనం MagCal"
+        },
+        "Reboot & Apply": {
+            "en": "Reboot & Apply",
+            "ta": "மீண்டும் தொடங்கு & பயன்படுத்து",
+            "hi": "रीबूट और लागू करें",
+            "te": "రీబూట్ & అప్లై"
+        },
+        "Reboot Required": {
+            "en": "Reboot Required",
+            "ta": "மீண்டும் தொடங்கல் தேவை",
+            "hi": "पुनः प्रारंभ आवश्यक",
+            "te": "పునः ప్రారంభం అవసరం"
+        },
+        "Calibration completed successfully": {
+            "en": "Calibration completed successfully",
+            "ta": "அளவீடு வெற்றிகரமாக முடிந்தது",
+            "hi": "कैलिब्रेशन सफलतापूर्वक पूर्ण हुआ",
+            "te": "కాలిబ్రేషన్ విజయవంతంగా పూర్తయింది"
+        },
+        "Reboot required to apply settings. Reboot now?": {
+            "en": "Reboot required to apply settings. Reboot now?",
+            "ta": "அமைப்புகளைப் பயன்படுத்த மீண்டும் தொடங்கல் தேவை. இப்போது மீண்டும் தொடங்கவா?",
+            "hi": "सेटिंग्स लागू करने के लिए पुनः प्रारंभ आवश्यक है। अब रीबूट करें?",
+            "te": "సెట్టింగ్‌లను వర్తింపజేయడానికి పునः ప్రారంభం అవసరం. ఇప్పుడు రీబూట్ చేయాలా?"
+        },
+        "Rebooting autopilot": {
+            "en": "Rebooting autopilot",
+            "ta": "autopilot ஐ மீண்டும் தொடங்குகிறது",
+            "hi": "ऑटोपायलट को पुनः प्रारंभ कर रहे हैं",
+            "te": "ఆటోపైలట్‌ను పునः ప్రారంభం చేస్తోంది"
+        },
+        "please wait": {
+            "en": "please wait",
+            "ta": "தயவுசெய்து காத்திருக்கவும்",
+            "hi": "कृपया प्रतीक्षा करें",
+            "te": "దయచేసి ఆగండి"
+        },
+        "The connection indicator will update automatically": {
+            "en": "The connection indicator will update automatically",
+            "ta": "সংযোগ సূচक স্বয়ংক্রিয়ভাবে আপডেট হবে",
+            "hi": "कनेक्शन संकेतक स्वचालित रूप से अपडेट होगा",
+            "te": "సংযోగ సూచిక స్వయంచాలకంగా నవీకరించబడుతుంది"
+        },
+        "CONNECTED": {
+            "en": "Connected",
+            "ta": "இணைக்கப்பட்டது",
+            "hi": "जुड़ा हुआ",
+            "te": "కనెక్ట్ చేయబడింది"
+        },
+        "DISCONNECTED": {
+            "en": "Disconnected",
+            "ta": "துண்டிக்கப்பட்டது",
+            "hi": "डिस्कनेक्ट किया गया",
+            "te": "డిస్‌కనెక్ట్ చేయబడింది"
         }
     })
     
+    // ─────────────────────────────────────────────────────────────────────────
     // Function to get translated text
+    // ─────────────────────────────────────────────────────────────────────────
     function getText(key) {
         if (translations[key] && translations[key][currentLanguage]) {
             return translations[key][currentLanguage];
@@ -724,16 +1187,19 @@ QtObject {
         return translations[key] ? translations[key]["en"] : key;
     }
     
+    // ─────────────────────────────────────────────────────────────────────────
     // Function to change language
-    function changeLanguage(languageCode) {
-        if (availableLanguages.some(lang => lang.code === languageCode)) {
-            currentLanguage = languageCode;
-            // Save to local storage or settings
-            console.log("Language changed to:", languageCode);
-        }
+    // ─────────────────────────────────────────────────────────────────────────
+function changeLanguage(languageCode) {
+    if (availableLanguages.some(lang => lang.code === languageCode)) {
+        currentLanguage = languageCode
+        console.log("🌐 Language changed to:", languageCode)
     }
+}
     
+    // ─────────────────────────────────────────────────────────────────────────
     // Function to get language name
+    // ─────────────────────────────────────────────────────────────────────────
     function getLanguageName(code) {
         var lang = availableLanguages.find(lang => lang.code === code);
         return lang ? lang.nativeName : code;
