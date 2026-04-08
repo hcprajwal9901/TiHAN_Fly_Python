@@ -12,12 +12,9 @@ Row {
     property var parametersWindowInstance: null
     property var navigationControlsWindowInstance: null
     property var pidTuningWindowInstance: null
-<<<<<<< HEAD
     property var flightModeWindowInstance: null 
     
-=======
     property var userParamsWindowInstance: null
->>>>>>> 1785943f20e719bed4124e527a784bd8125f837d
     clip: false
 
     Button {
