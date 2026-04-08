@@ -1429,19 +1429,15 @@ def main():
         # causes signal activity, Qt's default lastWindowClosed → quit()
         # fires and sets the quit flag. exec_() then returns immediately.
         # Disable during load, re-enable once the event loop is running.
+        # FIX: We now keep setQuitOnLastWindowClosed(False) permanently to prevent
+        # spurious exits when native QFileDialogs or dynamically loaded QML Windows close.
+        # Main.qml explicitly calls Qt.quit() when the main ApplicationWindow closes.
         app_instance.setQuitOnLastWindowClosed(False)
 
         success = load_main_window(qml_base_path, app_manager)
         if not success:
             print("❌ Failed to load main window, exiting...")
             return 1
-
-        # Re-enable after a single event-loop iteration so the main window
-        # is fully visible and closing it will properly quit the app.
-        def _restore_quit_on_close():
-            app_instance.setQuitOnLastWindowClosed(True)
-            print("✅ quitOnLastWindowClosed re-enabled")
-        QTimer.singleShot(0, _restore_quit_on_close)
 
         # Start FirmwareFlasher port scanner only after all other port activity settles.
         if 'firmware_flasher' in app_manager.models:

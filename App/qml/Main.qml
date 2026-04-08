@@ -24,6 +24,13 @@ ApplicationWindow {
 
     flags: Qt.Window
 
+    // Explicitly handle closing to ensure full application teardown
+    // as we have disabled Qt's default quitOnLastWindowClosed logic
+    onClosing: {
+        console.log("Main window closing, quitting application...")
+        Qt.quit()
+    }
+
     // ============================================================
     // Screen Tools - QGC Style
     // ============================================================
