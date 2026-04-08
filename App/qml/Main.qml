@@ -485,6 +485,18 @@ ApplicationWindow {
                     }
                 }
             }
+            
+            function onParameterFetchProgress(count, total) {
+                if (typeof paramProgressPopup !== 'undefined') {
+                    if (count > 0 && count < total && total > 0) {
+                        paramProgressPopup.showProgress(count, total)
+                    } else if (count === total && total > 0) {
+                        paramProgressPopup.closeProgress()
+                    } else if (count === 0 && total <= 1) { 
+                        paramProgressPopup.showProgress(0, 1) 
+                    }
+                }
+            }
         }
 
         // ── Security Badge ────────────────────────────────────────────────
@@ -650,6 +662,108 @@ ApplicationWindow {
                 globalToastPopup.visible = true
                 toastFadeIn.start()
                 toastTimer.restart()
+            }
+        }
+
+        // ============================================================
+        // Parameter Download Progress Popup
+        // ============================================================
+        Popup {
+            id: paramProgressPopup
+            anchors.centerIn: parent
+            width: Math.min(450, parent.width * 0.8)
+            height: paramColumn.height + (screenTools.defaultMargins * 4)
+            modal: true
+            focus: true
+            closePolicy: Popup.NoAutoClose
+            visible: false
+            z: 99998
+            
+            background: Rectangle {
+                color: "#1e1e2f"
+                radius: screenTools.defaultRadius * 1.5
+                border.color: accentColor
+                border.width: 1
+                
+                layer.enabled: true
+                layer.effect: DropShadow {
+                    transparentBorder: true
+                    horizontalOffset: 0; verticalOffset: 5
+                    radius: 20; samples: 25; color: "#80000000"
+                }
+            }
+            
+            Column {
+                id: paramColumn
+                anchors.centerIn: parent
+                width: parent.width - (screenTools.defaultMargins * 4)
+                spacing: screenTools.defaultSpacing * 2
+                
+                Text {
+                    text: "Getting Params... (SYSID 1)"
+                    color: "white"
+                    font.pixelSize: screenTools.largeFontPointSize
+                    font.weight: Font.Bold
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+                
+                ProgressBar {
+                    id: paramProgressBar
+                    width: parent.width
+                    from: 0
+                    to: 1
+                    value: 0
+                    
+                    background: Rectangle {
+                        implicitWidth: 200
+                        implicitHeight: screenTools.defaultFontPixelHeight * 0.8
+                        color: "#2a2a3f"
+                        radius: height / 2
+                    }
+                    contentItem: Item {
+                        implicitWidth: 200
+                        implicitHeight: screenTools.defaultFontPixelHeight * 0.8
+                        Rectangle {
+                            width: paramProgressBar.visualPosition * parent.width
+                            height: parent.height
+                            radius: height / 2
+                            color: successColor
+                        }
+                    }
+                }
+                
+                Text {
+                    id: paramProgressText
+                    text: "0 / 0"
+                    color: "#cccccc"
+                    font.pixelSize: screenTools.mediumFontPointSize
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+            }
+            
+            function showProgress(count, total) {
+                if (total <= 1 && count === 0) {
+                    paramProgressText.text = "Initializing parameter request..."
+                    paramProgressBar.value = 0
+                } else {
+                    paramProgressText.text = count + " / " + total
+                    if (total > 0) {
+                        paramProgressBar.value = count / total
+                    }
+                }
+                if (!visible) {
+                    open()
+                }
+            }
+            
+            function closeProgress() {
+                if (visible) {
+                    close()
+                    // Optional: Show toast when complete
+                    if (typeof globalToastPopup !== 'undefined') {
+                        globalToastPopup.show("Parameters loaded successfully!")
+                    }
+                }
             }
         }
     }
