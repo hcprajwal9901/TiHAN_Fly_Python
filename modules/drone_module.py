@@ -314,7 +314,7 @@ class DroneModel(QObject):
     @pyqtProperty('QVariantList', notify=missionPathUpdated)
     def missionWaypoints(self):
         """Get current mission waypoints (exposed to QML)"""
-        return self._mission_waypoints
+        return list(self._mission_waypoints)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # END OF MISSION PATH MANAGEMENT
@@ -861,7 +861,7 @@ class DroneModel(QObject):
 
     @pyqtProperty('QVariantList', notify=statusTextsChanged)
     def statusTexts(self):
-        return self._status_texts
+        return list(self._status_texts)
 
     @pyqtProperty(bool, notify=droneConnectedChanged)
     def isConnected(self):

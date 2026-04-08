@@ -12,12 +12,8 @@ Row {
     property var parametersWindowInstance: null
     property var navigationControlsWindowInstance: null
     property var pidTuningWindowInstance: null
-<<<<<<< HEAD
     property var flightModeWindowInstance: null 
-    
-=======
     property var userParamsWindowInstance: null
->>>>>>> 1785943f20e719bed4124e527a784bd8125f837d
     clip: false
 
     Button {
@@ -333,12 +329,12 @@ MenuItem {
                             Dialog {
                                 title: "Connection Required"
                                 modal: true
-                                standardButtons: Dialog.Ok
+                                standardButtons: Dialog.Close
                                 Label {
                                     text: "Please connect to the drone before opening PID Tuning."
                                     wrapMode: Text.WordWrap
                                 }
-                                onAccepted: destroy()
+                                onRejected: destroy()
                             }
                         ', mainWindowRef)
                         errorDialog.open()
@@ -411,14 +407,14 @@ MenuItem {
                             Dialog {
                                 title: "Connection Required"
                                 modal: true
-                                x: (parent.width - width) / 2
+                                x: (parent.width - width) / 2   
                                 y: (parent.height - height) / 2
-                                standardButtons: Dialog.Ok
+                                standardButtons: Dialog.Close   
                                 Label {
                                     text: "Please connect to the drone before opening Parameters window."
                                     wrapMode: Text.WordWrap
                                 }
-                                onAccepted: destroy()
+                                onRejected: destroy()
                             }
                         ', mainWindowRef)
                         errorDialog.open()
@@ -440,12 +436,12 @@ MenuItem {
                                 modal: true
                                 x: (parent.width - width) / 2
                                 y: (parent.height - height) / 2
-                                standardButtons: Dialog.Ok
+                                standardButtons: Dialog.Close
                                 Label {
                                     text: "DroneCommander not ready. Please wait a moment after connecting."
                                     wrapMode: Text.WordWrap
                                 }
-                                onAccepted: destroy()
+                                onRejected: destroy()
                             }
                         ', mainWindowRef)
                         errorDialog2.open()
@@ -538,12 +534,12 @@ MenuItem {
                                 modal: true\n\
                                 x: (parent.width - width) / 2\n\
                                 y: (parent.height - height) / 2\n\
-                                standardButtons: Dialog.Ok\n\
+                                standardButtons: Dialog.Close\n\
                                 Label {\n\
                                     text: "Please connect to the drone before opening User Params window."\n\
                                     wrapMode: Text.WordWrap\n\
                                 }\n\
-                                onAccepted: destroy()\n\
+                                onRejected: destroy()\n\
                             }\n\
                         ', mainWindowRef)
                         errorDialog.open()

@@ -720,7 +720,8 @@ Rectangle {
 
 
 
-    // Marker Popup (unchanged)
+   /* 
+   // Marker Popup (unchanged)
     Popup {
         id: markerPopup
         width: 300
@@ -932,6 +933,7 @@ Rectangle {
             }
         }
     }
+    */
 Popup {
     id: surveySettingsPopup
     width: 450
